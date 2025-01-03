@@ -111,7 +111,7 @@ def main():
     # Load dataset
     dataset = get_dataset("xsum")
     eval_dataset = dataset["validation"].select(
-        range(100)
+        range(1)
     )  # Evaluate on subset for efficiency
 
     # Initialize results storage
