@@ -35,9 +35,9 @@ def main():
     print(entailment_model)
 
     # Print the first 10 rows of the dataset
-    print(dataset["document"][:10])
-    print(dataset["summary"][:10])
-    print(dataset["id"][:10])
+    print(dataset["train"]["document"][:10])
+    print(dataset["train"]["summary"][:10])
+    print(dataset["train"]["id"][:10])
 
 
 if __name__ == "__main__":
