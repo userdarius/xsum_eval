@@ -68,7 +68,7 @@ def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
             and summary != "."  # Not just a period
             and not summary.startswith("http")
         ):  # Not a URL
-
+            logging.info(f"Generated summary: {summary}")
             summaries.append(summary)
 
             # Calculate log probabilities
