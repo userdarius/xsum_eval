@@ -21,7 +21,11 @@ logging.basicConfig(level=logging.INFO)
 
 def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
     """Generate multiple summaries for a given text"""
-    prompt = f"Summarize this text in one sentence: {text}"
+    prompt = (
+        "Generate a single-sentence summary using ONLY facts explicitly stated in this text. "
+        "Include the names exactly as written and mention only events directly described: "
+        f"{text}"
+    )
     inputs = tokenizer(
         prompt,
         return_tensors="pt",
@@ -38,7 +42,7 @@ def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
             do_sample=True,
             max_new_tokens=40,  # Further reduced
             min_new_tokens=10,
-            temperature=0.5,  # Reduced temperature for more focused outputs
+            temperature=0.4,  # Reduced temperature for more focused outputs
             top_p=0.85,  # Slightly reduced for more conservative sampling
             no_repeat_ngram_size=3,
             length_penalty=0.8,  # Increased penalty for longer sequences
