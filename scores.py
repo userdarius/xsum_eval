@@ -80,18 +80,29 @@ def logsumexp_by_id(semantic_ids, log_likelihoods, agg="sum_normalized"):
 
 
 def predictive_entropy(log_probs):
-    """Compute MC estimate of entropy.
-
+    """Compute MC estimate of entropy with normalized probabilities.
+    
     `E[-log p(x)] ~= -1/N sum_i log p(x_i)`, i.e. the average token likelihood.
     """
-
-    entropy = -np.sum(log_probs) / len(log_probs)
-
+    # Normalize to prevent underflow and get probabilities that sum to 1
+    log_probs_normalized = log_probs - np.max(log_probs)
+    probs = np.exp(log_probs_normalized)
+    probs = probs / np.sum(probs)
+    
+    # Compute entropy using normalized probabilities
+    entropy = -np.sum(probs * log_probs_normalized)
     return entropy
 
 
 def predictive_entropy_rao(log_probs):
-    entropy = -np.sum(np.exp(log_probs) * log_probs)
+    """Compute Rao's entropy with normalized probabilities."""
+    # Normalize to prevent underflow
+    log_probs_normalized = log_probs - np.max(log_probs)
+    probs = np.exp(log_probs_normalized)
+    probs = probs / np.sum(probs)
+    
+    # Compute Rao entropy using normalized probabilities
+    entropy = -np.sum(probs * log_probs)
     return entropy
 
 
