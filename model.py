@@ -8,6 +8,7 @@ from transformers import (
     AutoModelForSequenceClassification,
 )
 import torch.nn.functional as F
+import os
 
 
 ### Main model ###
@@ -70,15 +71,19 @@ class EntailmentDeberta(BaseEntailment):
         ).to(self.device)
 
     def check_implication(self, text1, text2, *args, **kwargs):
-        """
-        Check implication between two texts
-        """
         inputs = self.tokenizer(text1, text2, return_tensors="pt").to(self.device)
+        # The model checks if text1 -> text2, i.e. if text2 follows from text1.
+        # check_implication('The weather is good', 'The weather is good and I like you') --> 1
+        # check_implication('The weather is good and I like you', 'The weather is good') --> 2
         outputs = self.model(**inputs)
         logits = outputs.logits
-        probs = F.softmax(logits, dim=1)[0]  # Get probabilities
-        return {
-            "contradiction": probs[0].item(),
-            "neutral": probs[1].item(),
-            "entailment": probs[2].item(),
-        }
+        # Deberta-mnli returns `neutral` and `entailment` classes at indices 1 and 2.
+        largest_index = torch.argmax(
+            F.softmax(logits, dim=1)
+        )  # pylint: disable=no-member
+        prediction = largest_index.cpu().item()
+        if os.environ.get("DEBERTA_FULL_LOG", False):
+            logging.info("Deberta Input: %s -> %s", text1, text2)
+            logging.info("Deberta Prediction: %s", prediction)
+
+        return prediction
