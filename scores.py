@@ -1,36 +1,14 @@
 import numpy as np
-from scipy.special import logsumexp
 
-
+    
 def context_entails_response(context, responses, model):
     """
-    Check if the context entails the response with improved robustness
-
-    Args:
-        context: Source text
-        responses: List of generated summaries
-        model: Entailment model instance
-    Returns:
-        float: Entailment score between 0 and 2
+    Check if the context entails the response
     """
-    if not responses:
-        return 0.0
-
     votes = []
     for response in responses:
-        try:
-            score = model.check_implication(context, response)
-            votes.append(float(score))
-        except Exception as e:
-            print(f"Warning: Entailment check failed: {e}")
-            votes.append(0.0)
-
-    if not votes:
-        return 0.0
-
-    # Average the votes and ensure output is between 0 and 2
-    mean_score = np.mean(votes)
-    return float(np.clip(mean_score, 0.0, 2.0))
+        votes.append(model.check_implication(context, response))
+    return 2 - np.mean(votes)
 
 
 def get_semantic_ids(strings_list, model, strict_entailment=False, example=None):
@@ -102,60 +80,40 @@ def logsumexp_by_id(semantic_ids, log_likelihoods, agg="sum_normalized"):
 
 
 def predictive_entropy(log_probs):
-    """Compute MC estimate of entropy with numerical stability.
+    """Compute MC estimate of entropy.
 
-    Args:
-        log_probs: List of log probabilities
-    Returns:
-        float: Entropy estimate
+    `E[-log p(x)] ~= -1/N sum_i log p(x_i)`, i.e. the average token likelihood.
     """
-    # Convert to numpy array if not already
-    log_probs = np.array(log_probs)
 
-    # Normalize log probabilities
-    log_probs_normalized = log_probs - logsumexp(log_probs)
-
-    # Calculate entropy
-    entropy = -np.sum(np.exp(log_probs_normalized) * log_probs_normalized)
+    entropy = -np.sum(log_probs) / len(log_probs)
 
     return entropy
 
 
 def predictive_entropy_rao(log_probs):
-    """Compute Rao's entropy estimate with numerical stability.
-
-    Args:
-        log_probs: List of log probabilities
-    Returns:
-        float: Rao entropy estimate
-    """
-    # Convert to numpy array if not already
-    log_probs = np.array(log_probs)
-
-    # Normalize log probabilities using log-sum-exp trick
-    log_probs_normalized = log_probs - logsumexp(log_probs)
-    probs = np.exp(log_probs_normalized)
-
-    # Calculate Rao entropy
-    entropy = -np.sum(probs * log_probs)
-
+    entropy = -np.sum(np.exp(log_probs) * log_probs)
     return entropy
 
 
 def cluster_assignment_entropy(semantic_ids):
-    """Estimate semantic uncertainty from cluster assignments.
+    """Estimate semantic uncertainty from how often different clusters get assigned.
 
-    Args:
-        semantic_ids: List of semantic cluster IDs
-    Returns:
-        float: Cluster assignment entropy
+    We estimate the categorical distribution over cluster assignments from the
+    semantic ids. The uncertainty is then given by the entropy of that
+    distribution. This estimate does not use token likelihoods, it relies soley
+    on the cluster assignments. If probability mass is spread of between many
+    clusters, entropy is larger. If probability mass is concentrated on a few
+    clusters, entropy is small.
+
+    Input:
+        semantic_ids: List of semantic ids, e.g. [0, 1, 2, 1].
+    Output:
+        cluster_entropy: Entropy, e.g. (-p log p).sum() for p = [1/4, 2/4, 1/4].
     """
+
     n_generations = len(semantic_ids)
     counts = np.bincount(semantic_ids)
     probabilities = counts / n_generations
-
-    # Filter out zero probabilities to avoid log(0)
-    probabilities = probabilities[probabilities > 0]
-
-    entropy = -np.sum(probabilities * np.log(probabilities))
+    assert np.isclose(probabilities.sum(), 1)
+    entropy = -(probabilities * np.log(probabilities)).sum()
     return entropy
