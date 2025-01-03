@@ -1,14 +1,27 @@
 import numpy as np
 
-    
+
 def context_entails_response(context, responses, model):
     """
-    Check if the context entails the response
+    Check if each summary is entailed by the context (document)
+    Returns the average entailment score across all summaries
+    0 = contradiction
+    1 = neutral
+    2 = entailment
     """
     votes = []
-    for response in responses:
-        votes.append(model.check_implication(context, response))
-    return 2 - np.mean(votes)
+    for idx, response in enumerate(responses):
+        vote = model.check_implication(context, response)
+        print(f"Summary {idx+1}: {response}")
+        print(
+            f"Entailment score: {vote} ({['contradiction', 'neutral', 'entailment'][vote]})\n"
+        )
+        votes.append(vote)
+
+    mean_score = np.mean(votes)
+    print(f"All votes: {votes}")
+    print(f"Mean entailment score: {mean_score}")
+    return mean_score
 
 
 def get_semantic_ids(strings_list, model, strict_entailment=False, example=None):
@@ -81,14 +94,14 @@ def logsumexp_by_id(semantic_ids, log_likelihoods, agg="sum_normalized"):
 
 def predictive_entropy(log_probs):
     """Compute MC estimate of entropy with normalized probabilities.
-    
+
     `E[-log p(x)] ~= -1/N sum_i log p(x_i)`, i.e. the average token likelihood.
     """
     # Normalize to prevent underflow and get probabilities that sum to 1
     log_probs_normalized = log_probs - np.max(log_probs)
     probs = np.exp(log_probs_normalized)
     probs = probs / np.sum(probs)
-    
+
     # Compute entropy using normalized probabilities
     entropy = -np.sum(probs * log_probs_normalized)
     return entropy
@@ -100,7 +113,7 @@ def predictive_entropy_rao(log_probs):
     log_probs_normalized = log_probs - np.max(log_probs)
     probs = np.exp(log_probs_normalized)
     probs = probs / np.sum(probs)
-    
+
     # Compute Rao entropy using normalized probabilities
     entropy = -np.sum(probs * log_probs)
     return entropy
