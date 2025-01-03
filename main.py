@@ -22,10 +22,10 @@ logging.basicConfig(level=logging.INFO)
 def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
     """Generate multiple summaries for a given text"""
     prompt = (
-        "Generate a single-sentence summary using ONLY facts explicitly stated in this text. Only generate the summary, do not include any other text. "
-        "Mention only events directly described: "
+        "Write a simple one-sentence summary of this news article, focusing on who, what, and where: "
         f"{text}"
     )
+
     inputs = tokenizer(
         prompt,
         return_tensors="pt",
@@ -40,49 +40,35 @@ def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
         outputs = model.generate(
             **inputs,
             do_sample=True,
-            max_new_tokens=40,  # Further reduced
+            max_new_tokens=30,
             min_new_tokens=10,
-            temperature=0.4,  # Reduced temperature for more focused outputs
-            top_p=0.85,  # Slightly reduced for more conservative sampling
+            temperature=0.3,
+            top_p=0.85,
             no_repeat_ngram_size=3,
-            length_penalty=0.8,  # Increased penalty for longer sequences
-            num_beams=1,  # Use greedy decoding
+            length_penalty=1.0,
             return_dict_in_generate=True,
             output_scores=True,
             pad_token_id=tokenizer.pad_token_id,
         )
 
-        # Decode summary and remove the prompt from the output
-        # Decode and clean up the summary
         full_output = tokenizer.decode(outputs.sequences[0], skip_special_tokens=True)
-        # Remove prompt and clean up common artifacts
+
+        # Clean up the summary
         summary = (
             full_output.replace(prompt, "")
-            .replace("Source: BBC News", "")
-            .replace("In one sentence,", "")
-            .replace("Here is a summary:", "")
-            .replace("Source:", "")
-            .split("(")[0]  # Remove any parenthetical metadata
             .strip()
+            .split(".")[0]  # Take first sentence
+            .strip()
+            + "."
         )
 
-        # Only take the first sentence if multiple were generated
-        if "." in summary:
-            summary = summary.split(".")[0].strip() + "."
-
-        summaries.append(summary)
-
-        logging.info(f"Generated summary for document {doc_id}: {summary}")
-
+        # Basic validation
         if (
-            len(summary) > 10  # Must be longer than 10 chars
-            and not summary.startswith("http")  # No URLs
-            and not any(
-                x in summary.lower() for x in ["source:", "note:", "see more"]
-            )  # No metadata
-            and not summary.isspace()  # Not just whitespace
+            len(summary) > 15  # Reasonable length
             and summary != "."  # Not just a period
-        ):
+            and not summary.startswith("http")
+        ):  # Not a URL
+
             summaries.append(summary)
 
             # Calculate log probabilities
@@ -100,10 +86,6 @@ def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
             log_prob = torch.sum(token_log_probs).item()
 
             log_probs.append(log_prob)
-
-        # If we don't have enough valid summaries, continue generating
-        if len(summaries) < num_samples:
-            continue
 
     return summaries, log_probs
 
