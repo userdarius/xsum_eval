@@ -1,0 +1,41 @@
+2025-01-03 17:56:36,892 | INFO     | main.py:110 | generate_summaries | Sample 1 - Valid summary generated: The Sodja brothers, who are all former footballers, are accused of running the charity as a "ruse" to obtain money from.
+2025-01-03 17:56:37,651 | DEBUG    | main.py:130 | generate_summaries | Sample 1 log probability: -inf
+2025-01-03 17:56:37,651 | DEBUG    | main.py:78 | generate_summaries | Generating sample 2/10
+2025-01-03 17:56:40,121 | DEBUG    | main.py:97 | generate_summaries | Raw output length: 759 characters
+2025-01-03 17:56:40,121 | INFO     | main.py:110 | generate_summaries | Sample 2 - Valid summary generated: The Sodji brothers are accused of running a charity that was a front for their own financial gain.
+2025-01-03 17:56:40,122 | DEBUG    | main.py:130 | generate_summaries | Sample 2 log probability: -inf
+2025-01-03 17:56:40,122 | DEBUG    | main.py:78 | generate_summaries | Generating sample 3/10
+2025-01-03 17:56:42,027 | DEBUG    | main.py:97 | generate_summaries | Raw output length: 765 characters
+2025-01-03 17:56:42,027 | INFO     | main.py:110 | generate_summaries | Sample 3 - Valid summary generated: The Sodja brothers are accused of running a charity that was a front for their own business dealings.
+2025-01-03 17:56:42,027 | DEBUG    | main.py:130 | generate_summaries | Sample 3 log probability: -inf
+2025-01-03 17:56:42,027 | DEBUG    | main.py:78 | generate_summaries | Generating sample 4/10
+2025-01-03 17:56:43,176 | DEBUG    | main.py:97 | generate_summaries | Raw output length: 762 characters
+2025-01-03 17:56:43,176 | INFO     | main.py:110 | generate_summaries | Sample 4 - Valid summary generated: The Sodji brothers are accused of running a charity that was a front for their own financial gain.
+2025-01-03 17:56:43,177 | DEBUG    | main.py:130 | generate_summaries | Sample 4 log probability: -inf
+2025-01-03 17:56:43,177 | DEBUG    | main.py:78 | generate_summaries | Generating sample 5/10
+2025-01-03 17:56:44,548 | DEBUG    | main.py:97 | generate_summaries | Raw output length: 765 characters
+2025-01-03 17:56:44,548 | INFO     | main.py:110 | generate_summaries | Sample 5 - Valid summary generated: The Sodja brothers are accused of running a charity that was a front for their own business dealings.
+2025-01-03 17:56:44,548 | DEBUG    | main.py:130 | generate_summaries | Sample 5 log probability: -inf
+2025-01-03 17:56:44,548 | DEBUG    | main.py:78 | generate_summaries | Generating sample 6/10
+2025-01-03 17:56:45,684 | DEBUG    | main.py:97 | generate_summaries | Raw output length: 752 characters
+2025-01-03 17:56:45,684 | INFO     | main.py:110 | generate_summaries | Sample 6 - Valid summary generated: The Sodja brothers are accused of running a charity that was not a genuine charity, but a way to scam people out of their money.
+2025-01-03 17:56:45,684 | DEBUG    | main.py:130 | generate_summaries | Sample 6 log probability: -inf
+2025-01-03 17:56:45,684 | DEBUG    | main.py:78 | generate_summaries | Generating sample 7/10
+2025-01-03 17:56:46,819 | DEBUG    | main.py:97 | generate_summaries | Raw output length: 768 characters
+2025-01-03 17:56:46,819 | INFO     | main.py:110 | generate_summaries | Sample 7 - Valid summary generated: The Sodji brothers are accused of running a charity that was a front for their own financial gain.
+2025-01-03 17:56:46,819 | DEBUG    | main.py:130 | generate_summaries | Sample 7 log probability: -inf
+2025-01-03 17:56:46,819 | DEBUG    | main.py:78 | generate_summaries | Generating sample 8/10
+2025-01-03 17:56:47,955 | DEBUG    | main.py:97 | generate_summaries | Raw output length: 755 characters
+2025-01-03 17:56:47,955 | INFO     | main.py:110 | generate_summaries | Sample 8 - Valid summary generated: The trial is expected to last for 12 weeks.
+2025-01-03 17:56:47,955 | DEBUG    | main.py:130 | generate_summaries | Sample 8 log probability: -inf
+2025-01-03 17:56:47,955 | DEBUG    | main.py:78 | generate_summaries | Generating sample 9/10
+2025-01-03 17:56:49,086 | DEBUG    | main.py:97 | generate_summaries | Raw output length: 771 characters
+2025-01-03 17:56:49,086 | INFO     | main.py:110 | generate_summaries | Sample 9 - Valid summary generated: The Sodja brothers are accused of running a charity that was a front for their own business dealings.
+2025-01-03 17:56:49,086 | DEBUG    | main.py:130 | generate_summaries | Sample 9 log probability: -inf
+2025-01-03 17:56:49,086 | DEBUG    | main.py:78 | generate_summaries | Generating sample 10/10
+2025-01-03 17:56:50,219 | DEBUG    | main.py:97 | generate_summaries | Raw output length: 754 characters
+2025-01-03 17:56:50,219 | INFO     | main.py:110 | generate_summaries | Sample 10 - Valid summary generated: The trial is expected to last for four weeks.
+2025-01-03 17:56:50,219 | DEBUG    | main.py:130 | generate_summaries | Sample 10 log probability: -inf
+2025-01-03 17:56:50,219 | INFO     | main.py:140 | generate_summaries | Successfully generated 10/10 valid summaries
+2025-01-03 17:56:50,219 | DEBUG    | main.py:166 | evaluate_document | Calculating semantic IDs
+2025-01-03 17:56:53,448 | DEBUG    | main.py:168 | evaluate_document | Semantic IDs distribution: [2 3 3 1 1]

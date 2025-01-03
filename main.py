@@ -122,8 +122,10 @@ def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
                 else:
                     sequence = outputs.sequences[0, 1 : seq_length + 1]
 
-                log_softmax_scores = torch.log_softmax(scores[0, :seq_length], dim=-1)
-                token_log_probs = log_softmax_scores.gather(-1, sequence.unsqueeze(-1))
+                token_probs = torch.softmax(scores[0, :seq_length], dim=-1)
+                token_log_probs = torch.log(
+                    token_probs.gather(-1, sequence.unsqueeze(-1)) + 1e-10
+                )
                 log_prob = torch.sum(token_log_probs).item()
 
                 log_probs.append(log_prob)
