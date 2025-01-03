@@ -71,6 +71,9 @@ class EntailmentDeberta(BaseEntailment):
         ).to(self.device)
 
     def check_implication(self, text1, text2, *args, **kwargs):
+        """
+        Check implication between two texts
+        """
         inputs = self.tokenizer(text1, text2, return_tensors="pt").to(self.device)
         # The model checks if text1 -> text2, i.e. if text2 follows from text1.
         # check_implication('The weather is good', 'The weather is good and I like you') --> 1
