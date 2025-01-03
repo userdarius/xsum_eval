@@ -134,6 +134,7 @@ def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
                 )
             else:
                 logging.warning(f"Sample {sample_idx + 1} failed validation: {summary}")
+                torch.cuda.empty_cache()
 
         except Exception as e:
             logging.error(f"Error generating sample {sample_idx + 1}: {str(e)}")
