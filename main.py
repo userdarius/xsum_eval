@@ -19,7 +19,7 @@ from scores import (
 logging.basicConfig(level=logging.INFO)
 
 
-def generate_summaries(model, tokenizer, text, num_samples=10):
+def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
     """Generate multiple summaries for a given text"""
     inputs = tokenizer(
         f"Summarize this text in one sentence: {text}",
@@ -46,7 +46,7 @@ def generate_summaries(model, tokenizer, text, num_samples=10):
         summary = tokenizer.decode(outputs.sequences[0], skip_special_tokens=True)
         summaries.append(summary)
 
-        logging.info(f"Generated summary: {summary}")
+        logging.info(f"Generated summary for document {doc_id}: {summary}")
 
         # Calculate log probabilities with proper dimension handling
         scores = torch.stack(outputs.scores, dim=1)  # [batch_size, seq_len, vocab_size]
@@ -70,11 +70,13 @@ def generate_summaries(model, tokenizer, text, num_samples=10):
 
 
 def evaluate_document(
-    document, reference, model, tokenizer, entailment_model, num_samples=10
+    document, reference, doc_id, model, tokenizer, entailment_model, num_samples=10
 ):
     """Evaluate semantic entropy metrics for a single document"""
     # Generate multiple summaries
-    summaries, log_probs = generate_summaries(model, tokenizer, document, num_samples)
+    summaries, log_probs = generate_summaries(
+        model, tokenizer, document, doc_id, num_samples
+    )
 
     # Get semantic IDs for generated summaries
     semantic_ids = get_semantic_ids(summaries, entailment_model)
@@ -116,7 +118,12 @@ def main():
     for idx, item in enumerate(tqdm(eval_dataset)):
         try:
             metrics = evaluate_document(
-                item["document"], item["summary"], model, tokenizer, entailment_model
+                item["document"],
+                item["summary"],
+                item["id"],
+                model,
+                tokenizer,
+                entailment_model,
             )
 
             metrics["document_id"] = item["id"]
