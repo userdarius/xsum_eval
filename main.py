@@ -212,7 +212,7 @@ def main():
         # Load dataset
         logging.info("Loading XSum dataset")
         dataset = get_dataset("xsum")
-        eval_dataset = dataset["validation"].select(range(1))
+        eval_dataset = dataset["validation"].select(range(100))
         logging.info(f"Evaluation dataset size: {len(eval_dataset)} documents")
 
         # Initialize results storage
