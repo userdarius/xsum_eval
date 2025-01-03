@@ -21,8 +21,9 @@ logging.basicConfig(level=logging.INFO)
 
 def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
     """Generate multiple summaries for a given text"""
+    prompt = f"Summarize this text in one sentence: {text}"
     inputs = tokenizer(
-        f"Summarize this text in one sentence: {text}",
+        prompt,
         return_tensors="pt",
         max_length=512,
         truncation=True,
@@ -43,7 +44,9 @@ def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
             pad_token_id=tokenizer.pad_token_id,
         )
 
-        summary = tokenizer.decode(outputs.sequences[0], skip_special_tokens=True)
+        # Decode summary and remove the prompt from the output
+        full_output = tokenizer.decode(outputs.sequences[0], skip_special_tokens=True)
+        summary = full_output.replace(prompt, "").strip()
         summaries.append(summary)
 
         logging.info(f"Generated summary for document {doc_id}: {summary}")
