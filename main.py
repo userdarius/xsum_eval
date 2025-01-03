@@ -22,8 +22,8 @@ logging.basicConfig(level=logging.INFO)
 def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
     """Generate multiple summaries for a given text"""
     prompt = (
-        "Generate a single-sentence summary using ONLY facts explicitly stated in this text. "
-        "Include the names exactly as written and mention only events directly described: "
+        "Generate a single-sentence summary using ONLY facts explicitly stated in this text. Only generate the summary, do not include any other text. "
+        "Mention only events directly described: "
         f"{text}"
     )
     inputs = tokenizer(
