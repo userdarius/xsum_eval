@@ -36,9 +36,12 @@ def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
         outputs = model.generate(
             **inputs,
             do_sample=True,
-            max_new_tokens=128,
+            max_new_tokens=50,  # Reduced from 128
+            min_new_tokens=10,  # Add minimum length
             temperature=0.7,
             top_p=0.9,
+            no_repeat_ngram_size=3,  # Prevent repetition
+            length_penalty=0.6,  # Encourage shorter sequences
             return_dict_in_generate=True,
             output_scores=True,
             pad_token_id=tokenizer.pad_token_id,
