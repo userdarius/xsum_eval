@@ -31,7 +31,7 @@ def generate_summaries(model, tokenizer, text, num_samples=10):
     summaries = []
     log_probs = []
 
-    for _ in range(num_samples):
+    for item in tqdm(range(num_samples)):
         outputs = model.generate(
             **inputs,
             do_sample=True,
@@ -45,6 +45,8 @@ def generate_summaries(model, tokenizer, text, num_samples=10):
 
         summary = tokenizer.decode(outputs.sequences[0], skip_special_tokens=True)
         summaries.append(summary)
+
+        logging.info(f"Generated summary for id {item['id']}: {summary}")
 
         # Calculate log probabilities with proper dimension handling
         scores = torch.stack(outputs.scores, dim=1)  # [batch_size, seq_len, vocab_size]
