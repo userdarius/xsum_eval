@@ -48,8 +48,22 @@ def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
         )
 
         # Decode summary and remove the prompt from the output
+        # Decode and clean up the summary
         full_output = tokenizer.decode(outputs.sequences[0], skip_special_tokens=True)
-        summary = full_output.replace(prompt, "").strip()
+        # Remove prompt and clean up common artifacts
+        summary = (
+            full_output.replace(prompt, "")
+            .replace("Source: BBC News", "")
+            .replace("In one sentence,", "")
+            .replace("Here is a summary:", "")
+            .split("(")[0]  # Remove any parenthetical metadata
+            .strip()
+        )
+
+        # Only take the first sentence if multiple were generated
+        if "." in summary:
+            summary = summary.split(".")[0].strip() + "."
+
         summaries.append(summary)
 
         logging.info(f"Generated summary for document {doc_id}: {summary}")
