@@ -34,8 +34,8 @@ def generate_summaries(model, tokenizer, text, num_samples=10):
     for _ in range(num_samples):
         outputs = model.generate(
             **inputs,
-            max_length=128,
             do_sample=True,
+            max_new_tokens=128,
             temperature=0.7,
             top_p=0.9,
             return_dict_in_generate=True,
