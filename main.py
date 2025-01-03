@@ -46,13 +46,22 @@ def generate_summaries(model, tokenizer, text, num_samples=10):
         summary = tokenizer.decode(outputs.sequences[0], skip_special_tokens=True)
         summaries.append(summary)
 
-        # Calculate log probabilities
-        scores = torch.stack(outputs.scores, dim=1)
-        log_prob = torch.sum(
-            torch.log_softmax(scores[0], dim=-1).gather(
-                -1, outputs.sequences[0, 1:].unsqueeze(-1)
-            )
-        ).item()
+        # Calculate log probabilities with proper dimension handling
+        scores = torch.stack(outputs.scores, dim=1)  # [batch_size, seq_len, vocab_size]
+        seq_length = outputs.sequences[0, 1:].size(0)  # Get actual sequence length
+
+        # Ensure we only use valid sequence positions
+        if seq_length > scores.size(1):
+            seq_length = scores.size(1)
+            sequence = outputs.sequences[0, 1 : seq_length + 1]
+        else:
+            sequence = outputs.sequences[0, 1 : seq_length + 1]
+
+        # Calculate log probabilities for the valid sequence
+        log_softmax_scores = torch.log_softmax(scores[0, :seq_length], dim=-1)
+        token_log_probs = log_softmax_scores.gather(-1, sequence.unsqueeze(-1))
+        log_prob = torch.sum(token_log_probs).item()
+
         log_probs.append(log_prob)
 
     return summaries, log_probs
