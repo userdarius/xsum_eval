@@ -11,7 +11,7 @@ def context_entails_response(context, responses, model):
     """
     votes = []
     for idx, response in enumerate(responses):
-        vote = model.check_implication(context, response)
+        vote = model.check_implication(response, context)
         print(f"Summary {idx+1}: {response}")
         print(
             f"Entailment score: {vote} ({['contradiction', 'neutral', 'entailment'][vote]})\n"
