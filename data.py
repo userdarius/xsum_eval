@@ -8,4 +8,4 @@ def get_dataset(name):
     print(f"Loading {name} dataset")
 
     df = datasets.load_dataset(name)
-    return {"document": df["document"], "id": df["id"], "summary": df["summary"]}
+    return df
