@@ -36,12 +36,13 @@ def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
         outputs = model.generate(
             **inputs,
             do_sample=True,
-            max_new_tokens=50,  # Reduced from 128
-            min_new_tokens=10,  # Add minimum length
-            temperature=0.7,
-            top_p=0.9,
-            no_repeat_ngram_size=3,  # Prevent repetition
-            length_penalty=0.6,  # Encourage shorter sequences
+            max_new_tokens=40,  # Further reduced
+            min_new_tokens=10,
+            temperature=0.5,  # Reduced temperature for more focused outputs
+            top_p=0.85,  # Slightly reduced for more conservative sampling
+            no_repeat_ngram_size=3,
+            length_penalty=0.8,  # Increased penalty for longer sequences
+            num_beams=1,  # Use greedy decoding
             return_dict_in_generate=True,
             output_scores=True,
             pad_token_id=tokenizer.pad_token_id,
@@ -56,6 +57,7 @@ def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
             .replace("Source: BBC News", "")
             .replace("In one sentence,", "")
             .replace("Here is a summary:", "")
+            .replace("Source:", "")
             .split("(")[0]  # Remove any parenthetical metadata
             .strip()
         )
@@ -68,23 +70,36 @@ def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
 
         logging.info(f"Generated summary for document {doc_id}: {summary}")
 
-        # Calculate log probabilities with proper dimension handling
-        scores = torch.stack(outputs.scores, dim=1)  # [batch_size, seq_len, vocab_size]
-        seq_length = outputs.sequences[0, 1:].size(0)  # Get actual sequence length
+        if (
+            len(summary) > 10  # Must be longer than 10 chars
+            and not summary.startswith("http")  # No URLs
+            and not any(
+                x in summary.lower() for x in ["source:", "note:", "see more"]
+            )  # No metadata
+            and not summary.isspace()  # Not just whitespace
+            and summary != "."  # Not just a period
+        ):
+            summaries.append(summary)
 
-        # Ensure we only use valid sequence positions
-        if seq_length > scores.size(1):
-            seq_length = scores.size(1)
-            sequence = outputs.sequences[0, 1 : seq_length + 1]
-        else:
-            sequence = outputs.sequences[0, 1 : seq_length + 1]
+            # Calculate log probabilities
+            scores = torch.stack(outputs.scores, dim=1)
+            seq_length = outputs.sequences[0, 1:].size(0)
 
-        # Calculate log probabilities for the valid sequence
-        log_softmax_scores = torch.log_softmax(scores[0, :seq_length], dim=-1)
-        token_log_probs = log_softmax_scores.gather(-1, sequence.unsqueeze(-1))
-        log_prob = torch.sum(token_log_probs).item()
+            if seq_length > scores.size(1):
+                seq_length = scores.size(1)
+                sequence = outputs.sequences[0, 1 : seq_length + 1]
+            else:
+                sequence = outputs.sequences[0, 1 : seq_length + 1]
 
-        log_probs.append(log_prob)
+            log_softmax_scores = torch.log_softmax(scores[0, :seq_length], dim=-1)
+            token_log_probs = log_softmax_scores.gather(-1, sequence.unsqueeze(-1))
+            log_prob = torch.sum(token_log_probs).item()
+
+            log_probs.append(log_prob)
+
+        # If we don't have enough valid summaries, continue generating
+        if len(summaries) < num_samples:
+            continue
 
     return summaries, log_probs
 
