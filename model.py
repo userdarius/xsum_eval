@@ -2,11 +2,19 @@
 
 import logging
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    AutoModelForSequenceClassification,
+)
+import torch.nn.functional as F
 
 
 ### Main model ###
 def load_model(model_name):
+    """
+    Load a model from HuggingFace
+    """
     try:
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
@@ -20,6 +28,9 @@ def load_model(model_name):
 
 
 def load_tokenizer(model_name):
+    """
+    Load a tokenizer from HuggingFace
+    """
     try:
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         # Set padding token to eos token if not set
@@ -32,6 +43,9 @@ def load_tokenizer(model_name):
 
 
 def load_model_and_tokenizer(model_name):
+    """
+    Load a model and tokenizer from HuggingFace
+    """
     model = load_model(model_name)
     tokenizer = load_tokenizer(model_name)
     return model, tokenizer
@@ -56,6 +70,9 @@ class EntailmentDeberta(BaseEntailment):
         ).to(self.device)
 
     def check_implication(self, text1, text2, *args, **kwargs):
+        """
+        Check implication between two texts
+        """
         inputs = self.tokenizer(text1, text2, return_tensors="pt").to(self.device)
         outputs = self.model(**inputs)
         logits = outputs.logits

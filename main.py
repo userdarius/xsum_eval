@@ -1,14 +1,21 @@
+"""
+Main script to run the evaluation script
+"""
+
 import logging
 import torch
+from tqdm import tqdm
 from model import load_model_and_tokenizer, EntailmentDeberta
 from data import get_dataset
-from tqdm import tqdm
 
 
 logging.basicConfig(level=logging.INFO)
 
 
 def main():
+    """
+    Main function to run the evaluation script
+    """
     # Load model and tokenizer
     model_name = "meta-llama/Llama-3.1-8B-Instruct"
     model, tokenizer = load_model_and_tokenizer(model_name)
