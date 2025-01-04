@@ -113,22 +113,21 @@ def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
                 summaries.append(summary)
 
                 # Calculate log probabilities
-                scores = torch.stack(outputs.scores, dim=1)
-                seq_length = outputs.sequences[0, 1:].size(0)
+                scores = torch.stack(outputs.scores, dim=1)  # [batch_size, seq_length, vocab_size]
+                seq_length = min(outputs.sequences[0, 1:].size(0), scores.size(1))
+                sequence = outputs.sequences[0, 1:seq_length + 1]
 
-                if seq_length > scores.size(1):
-                    seq_length = scores.size(1)
-                    sequence = outputs.sequences[0, 1 : seq_length + 1]
-                else:
-                    sequence = outputs.sequences[0, 1 : seq_length + 1]
-
-                token_probs = torch.softmax(scores[0, :seq_length], dim=-1)
-                token_log_probs = torch.log(
-                    token_probs.gather(-1, sequence.unsqueeze(-1)) + 1e-10
-                )
-                log_prob = torch.sum(token_log_probs).item()
+                # Use log_softmax for numerical stability
+                token_log_probs = torch.log_softmax(scores[0, :seq_length], dim=-1)
+                sequence_log_probs = token_log_probs.gather(-1, sequence.unsqueeze(-1))
+                log_prob = sequence_log_probs.sum().item()
 
                 log_probs.append(log_prob)
+
+                # Add some debug logging
+                logging.info(f"Sequence length: {seq_length}")
+                logging.info(f"Token log probs: {sequence_log_probs.tolist()}")
+                logging.info(f"Total log prob: {log_prob}")
                 logging.debug(
                     f"Sample {sample_idx + 1} log probability: {log_prob:.4f}"
                 )
