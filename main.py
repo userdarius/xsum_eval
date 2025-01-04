@@ -23,37 +23,18 @@ from scores import (
 
 
 class ResultsVisualizer:
-    def __init__(self, log_filename):
-        self.results = []
-        self.log_filename = log_filename
-
-    def parse_log_file(self):
-        """Parse the log file to extract metrics for each document"""
-        metrics_by_doc = {}
-        current_doc = None
-
-        with open(self.log_filename, "r") as f:
-            for line in f:
-                if "Document " in line and " - " in line:
-                    # Extract document ID and metric
-                    parts = line.split(" - ")
-                    if len(parts) == 2:
-                        doc_id = parts[0].split("Document ")[-1].strip()
-                        metric_part = parts[1].strip()
-
-                        if ":" in metric_part:
-                            metric_name, value = metric_part.split(":")
-                            try:
-                                value = float(value.strip())
-                                if doc_id not in metrics_by_doc:
-                                    metrics_by_doc[doc_id] = {}
-                                metrics_by_doc[doc_id][metric_name] = value
-                            except ValueError:
-                                continue
-
-        # Convert to DataFrame
-        self.results = pd.DataFrame.from_dict(metrics_by_doc, orient="index")
-        return self.results
+    def __init__(self, results_list):
+        """Initialize with a list of result dictionaries"""
+        # Convert results list to DataFrame, excluding generated_summaries
+        cleaned_results = [
+            {
+                k: v
+                for k, v in r.items()
+                if k != "generated_summaries" and not isinstance(v, (list, dict))
+            }
+            for r in results_list
+        ]
+        self.results = pd.DataFrame(cleaned_results)
 
     def plot_metric_distribution(self, metric_name, title=None):
         """Create a distribution plot for a specific metric"""
@@ -86,14 +67,16 @@ class ResultsVisualizer:
 
     def plot_metrics_over_documents(self):
         """Plot all metrics across documents"""
-        metrics = self.results.columns
+        metrics = [col for col in self.results.columns if col != "document_id"]
         plt.figure(figsize=(12, 6))
 
         for metric in metrics:
-            plt.plot(self.results.index, self.results[metric], label=metric, marker="o")
+            plt.plot(
+                range(len(self.results)), self.results[metric], label=metric, marker="o"
+            )
 
         plt.title("Metrics across Documents")
-        plt.xlabel("Document ID")
+        plt.xlabel("Document Index")
         plt.ylabel("Value")
         plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
         plt.tight_layout()
@@ -105,20 +88,6 @@ class ResultsVisualizer:
         summary_stats = self.results.describe()
         summary_stats.to_csv("summary_statistics.csv")
         return summary_stats
-
-
-def log_metrics(metrics, doc_id):
-    """Log metrics in both human-readable and JSON formats"""
-    metric_data = {
-        "document_id": doc_id,
-        "timestamp": datetime.now().isoformat(),
-        "metrics": {
-            k: v
-            for k, v in metrics.items()
-            if k != "generated_summaries" and not isinstance(v, (list, dict))
-        },
-    }
-    logging.info(f"Metrics for document {doc_id}: {json.dumps(metric_data)}")
 
 
 # Enhanced logging configuration
@@ -381,12 +350,7 @@ def main():
 
         try:
             logging.info("Generating visualizations...")
-            visualizer = ResultsVisualizer(log_filename)
-            results_df = visualizer.parse_log_file()
-
-            if results_df.empty:
-                logging.warning("No data available for visualization")
-                return
+            visualizer = ResultsVisualizer(results)  # Pass the results list directly
 
             # Generate visualizations
             for metric in [
