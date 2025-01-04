@@ -12,7 +12,12 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import json
-from model import load_model_and_tokenizer, EntailmentDeberta
+from model import (
+    load_model_and_tokenizer,
+    EntailmentDeberta,
+    speculative_sampling_v2,
+    load_approx_and_target_model_and_tokenizer,
+)
 from data import get_dataset
 from scores import (
     context_entails_response,
@@ -123,9 +128,15 @@ def setup_logging():
 
 
 def generate_summaries(
-    model, tokenizer, text, reference_summary, doc_id, num_samples=10
+    approx_model,
+    target_model,
+    tokenizer,
+    text,
+    reference_summary,
+    doc_id,
+    num_samples=10,
 ):
-    """Generate multiple summaries for a given text"""
+    """Generate multiple summaries for a given text using speculative sampling"""
     logging.info(f"Generating {num_samples} summaries for document ID: {doc_id}")
     logging.debug(f"Input text length: {len(text)} characters")
 
@@ -137,7 +148,7 @@ def generate_summaries(
             return_tensors="pt",
             max_length=512,
             truncation=True,
-        ).to(model.device)
+        ).to(target_model.device)
         logging.debug(f"Tokenized input length: {inputs['input_ids'].size()}")
     except Exception as e:
         logging.error(f"Tokenization failed: {str(e)}")
@@ -151,23 +162,20 @@ def generate_summaries(
     for sample_idx in range(num_samples):
         logging.debug(f"Generating sample {sample_idx + 1}/{num_samples}")
         try:
-            outputs = model.generate(
-                **inputs,
-                do_sample=True,
-                max_new_tokens=30,
-                min_new_tokens=10,
+            # Use speculative sampling instead of regular generate
+            output_ids = speculative_sampling_v2(
+                prefix=inputs.input_ids,
+                approx_model=approx_model,
+                target_model=target_model,
+                max_len=30,  # max_new_tokens
+                gamma=4,  # number of tokens to speculate
                 temperature=0.5,
+                top_k=20,
                 top_p=0.85,
-                no_repeat_ngram_size=3,
-                length_penalty=1.0,
-                return_dict_in_generate=True,
-                output_scores=True,
-                pad_token_id=tokenizer.pad_token_id,
+                random_seed=None,
             )
 
-            full_output = tokenizer.decode(
-                outputs.sequences[0], skip_special_tokens=True
-            )
+            full_output = tokenizer.decode(output_ids[0], skip_special_tokens=True)
             logging.debug(f"Raw output length: {len(full_output)} characters")
 
             # Clean up the summary
@@ -186,23 +194,17 @@ def generate_summaries(
                 )
                 summaries.append(summary)
 
-                # Calculate log probabilities
-                scores = torch.stack(outputs.scores, dim=1)
-                seq_length = outputs.sequences[0, 1:].size(0)
+                # Calculate approximate log probabilities
+                # Since speculative sampling doesn't return scores directly,
+                # we'll need to calculate them separately
+                with torch.no_grad():
+                    input_ids = tokenizer(summary, return_tensors="pt").input_ids.to(
+                        target_model.device
+                    )
+                    outputs = target_model(input_ids, labels=input_ids)
+                    log_prob = -outputs.loss.item() * input_ids.size(1)
+                    log_probs.append(log_prob)
 
-                if seq_length > scores.size(1):
-                    seq_length = scores.size(1)
-                    sequence = outputs.sequences[0, 1 : seq_length + 1]
-                else:
-                    sequence = outputs.sequences[0, 1 : seq_length + 1]
-
-                token_probs = torch.softmax(scores[0, :seq_length], dim=-1)
-                token_log_probs = torch.log(
-                    token_probs.gather(-1, sequence.unsqueeze(-1)) + 1e-10
-                )
-                log_prob = torch.sum(token_log_probs).item()
-
-                log_probs.append(log_prob)
                 logging.debug(
                     f"Sample {sample_idx + 1} log probability: {log_prob:.4f}"
                 )
@@ -221,7 +223,14 @@ def generate_summaries(
 
 
 def evaluate_document(
-    document, reference, doc_id, model, tokenizer, entailment_model, num_samples=10
+    document,
+    reference,
+    doc_id,
+    approx_model,
+    target_model,
+    tokenizer,
+    entailment_model,
+    num_samples=10,
 ):
     """Evaluate semantic entropy metrics for a single document"""
     logging.info(f"Starting evaluation for document ID: {doc_id}")
@@ -232,7 +241,13 @@ def evaluate_document(
     try:
         # Generate multiple summaries
         summaries, log_probs = generate_summaries(
-            model, tokenizer, document, reference, doc_id, num_samples
+            approx_model,
+            target_model,
+            tokenizer,
+            document,
+            reference,
+            doc_id,
+            num_samples,
         )
 
         if not summaries:
@@ -278,8 +293,13 @@ def main():
     try:
         # Load models and tokenizer
         logging.info("Loading models and tokenizer")
-        model_name = "meta-llama/Llama-3.1-8B-Instruct"
-        model, tokenizer = load_model_and_tokenizer(model_name)
+        approx_model_name = "meta-llama/Llama-3.2-1B-Instruct"
+        target_model_name = "meta-llama/Llama-3.2-3B-Instruct"
+        approx_model, target_model, tokenizer = (
+            load_approx_and_target_model_and_tokenizer(
+                approx_model_name, target_model_name
+            )
+        )
         entailment_model = EntailmentDeberta()
         logging.info("Models loaded successfully")
 
@@ -308,7 +328,8 @@ def main():
                 item["document"],
                 item["summary"],
                 item["id"],
-                model,
+                approx_model,
+                target_model,
                 tokenizer,
                 entailment_model,
             )
@@ -348,6 +369,7 @@ def main():
         else:
             logging.error("No results generated - all documents failed processing")
 
+        # Generate visualizations
         try:
             logging.info("Generating visualizations...")
             visualizer = ResultsVisualizer(results)  # Pass the results list directly
