@@ -54,7 +54,7 @@ def generate_summaries(model, tokenizer, text, reference_summary, doc_id, num_sa
     logging.debug(f"Input text length: {len(text)} characters")
 
     prompt = (
-        "Write a simple one-sentence summary of this news article, focusing on who, what, and where: "
+        "Write a simple one-sentence summary of this news article: "
         f"{text}"
     )
 
