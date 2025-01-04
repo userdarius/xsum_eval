@@ -48,7 +48,7 @@ def setup_logging():
     logging.info(f"Logging initialized. Log file: {log_filename}")
 
 
-def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
+def generate_summaries(model, tokenizer, text, reference_summary, doc_id, num_samples=10):
     """Generate multiple summaries for a given text"""
     logging.info(f"Generating {num_samples} summaries for document ID: {doc_id}")
     logging.debug(f"Input text length: {len(text)} characters")
@@ -72,6 +72,8 @@ def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
 
     summaries = []
     log_probs = []
+    logging.info(f"Document: {text}")
+    logging.info(f"Reference summary: {reference_summary}")
 
     for sample_idx in range(num_samples):
         logging.debug(f"Generating sample {sample_idx + 1}/{num_samples}")
@@ -157,7 +159,7 @@ def evaluate_document(
     try:
         # Generate multiple summaries
         summaries, log_probs = generate_summaries(
-            model, tokenizer, document, doc_id, num_samples
+            model, tokenizer, document, reference, doc_id, num_samples
         )
 
         if not summaries:

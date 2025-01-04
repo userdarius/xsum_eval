@@ -105,15 +105,17 @@ def predictive_entropy(log_probs):
 
     # Calculate raw entropy using original log probabilities
     raw_entropy = -np.sum(probs * log_probs)
-    
+
     # Normalize by the maximum possible entropy for the number of samples
     n_samples = len(log_probs)
-    max_entropy = np.log(n_samples)  # Maximum entropy is ln(n) for n equally likely outcomes
-    
+    max_entropy = np.log(
+        n_samples
+    )  # Maximum entropy is ln(n) for n equally likely outcomes
+
     # Scale the entropy to [0, ln(n)] range
     normalized_entropy = raw_entropy / (np.abs(np.mean(log_probs)))
     normalized_entropy = normalized_entropy * max_entropy
-    
+
     return normalized_entropy
 
 
