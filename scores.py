@@ -1,5 +1,6 @@
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
+import logging
 
 
 def context_entails_response(context, responses, model):
@@ -64,6 +65,20 @@ def get_semantic_ids(strings_list, model, strict_entailment=False, example=None)
             next_id += 1
 
     assert -1 not in semantic_set_ids
+
+    # After assigning all IDs, log the clusters
+    clusters = {}
+    for idx, sem_id in enumerate(semantic_set_ids):
+        if sem_id not in clusters:
+            clusters[sem_id] = []
+        clusters[sem_id].append(strings_list[idx])
+
+    # Log each cluster
+    logging.info("Semantic clusters:")
+    for cluster_id, texts in clusters.items():
+        logging.info(f"\nCluster {cluster_id}:")
+        for text in texts:
+            logging.info(f"  - {text}")
 
     return semantic_set_ids
 
