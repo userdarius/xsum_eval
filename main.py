@@ -2,12 +2,16 @@
 Main script to run the semantic entropy evaluation on XSum dataset with enhanced logging
 """
 
+import sys
+from datetime import datetime
 import logging
 import torch
 from tqdm import tqdm
 import numpy as np
-import sys
-from datetime import datetime
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+import json
 from model import load_model_and_tokenizer, EntailmentDeberta
 from data import get_dataset
 from scores import (
@@ -16,6 +20,105 @@ from scores import (
     predictive_entropy,
     cluster_assignment_entropy,
 )
+
+
+class ResultsVisualizer:
+    def __init__(self, log_filename):
+        self.results = []
+        self.log_filename = log_filename
+
+    def parse_log_file(self):
+        """Parse the log file to extract metrics for each document"""
+        metrics_by_doc = {}
+        current_doc = None
+
+        with open(self.log_filename, "r") as f:
+            for line in f:
+                if "Document " in line and " - " in line:
+                    # Extract document ID and metric
+                    parts = line.split(" - ")
+                    if len(parts) == 2:
+                        doc_id = parts[0].split("Document ")[-1].strip()
+                        metric_part = parts[1].strip()
+
+                        if ":" in metric_part:
+                            metric_name, value = metric_part.split(":")
+                            try:
+                                value = float(value.strip())
+                                if doc_id not in metrics_by_doc:
+                                    metrics_by_doc[doc_id] = {}
+                                metrics_by_doc[doc_id][metric_name] = value
+                            except ValueError:
+                                continue
+
+        # Convert to DataFrame
+        self.results = pd.DataFrame.from_dict(metrics_by_doc, orient="index")
+        return self.results
+
+    def plot_metric_distribution(self, metric_name, title=None):
+        """Create a distribution plot for a specific metric"""
+        plt.figure(figsize=(10, 6))
+        sns.histplot(data=self.results[metric_name], kde=True)
+        plt.title(title or f"Distribution of {metric_name}")
+        plt.xlabel(metric_name)
+        plt.ylabel("Count")
+        plt.savefig(f"{metric_name}_distribution.png")
+        plt.close()
+
+    def plot_metric_correlations(self):
+        """Create a correlation heatmap between different metrics"""
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(self.results.corr(), annot=True, cmap="coolwarm", center=0)
+        plt.title("Correlation between Metrics")
+        plt.tight_layout()
+        plt.savefig("metric_correlations.png")
+        plt.close()
+
+    def plot_metrics_scatter(self, x_metric, y_metric):
+        """Create a scatter plot comparing two metrics"""
+        plt.figure(figsize=(10, 6))
+        sns.scatterplot(data=self.results, x=x_metric, y=y_metric)
+        plt.title(f"{x_metric} vs {y_metric}")
+        plt.xlabel(x_metric)
+        plt.ylabel(y_metric)
+        plt.savefig(f"{x_metric}_vs_{y_metric}_scatter.png")
+        plt.close()
+
+    def plot_metrics_over_documents(self):
+        """Plot all metrics across documents"""
+        metrics = self.results.columns
+        plt.figure(figsize=(12, 6))
+
+        for metric in metrics:
+            plt.plot(self.results.index, self.results[metric], label=metric, marker="o")
+
+        plt.title("Metrics across Documents")
+        plt.xlabel("Document ID")
+        plt.ylabel("Value")
+        plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+        plt.tight_layout()
+        plt.savefig("metrics_across_documents.png")
+        plt.close()
+
+    def generate_summary_statistics(self):
+        """Generate and save summary statistics"""
+        summary_stats = self.results.describe()
+        summary_stats.to_csv("summary_statistics.csv")
+        return summary_stats
+
+
+def log_metrics(metrics, doc_id):
+    """Log metrics in both human-readable and JSON formats"""
+    metric_data = {
+        "document_id": doc_id,
+        "timestamp": datetime.now().isoformat(),
+        "metrics": {
+            k: v
+            for k, v in metrics.items()
+            if k != "generated_summaries" and not isinstance(v, (list, dict))
+        },
+    }
+    logging.info(f"Metrics for document {doc_id}: {json.dumps(metric_data)}")
 
 
 # Enhanced logging configuration
@@ -47,16 +150,17 @@ def setup_logging():
 
     logging.info(f"Logging initialized. Log file: {log_filename}")
 
+    return log_filename
 
-def generate_summaries(model, tokenizer, text, reference_summary, doc_id, num_samples=10):
+
+def generate_summaries(
+    model, tokenizer, text, reference_summary, doc_id, num_samples=10
+):
     """Generate multiple summaries for a given text"""
     logging.info(f"Generating {num_samples} summaries for document ID: {doc_id}")
     logging.debug(f"Input text length: {len(text)} characters")
 
-    prompt = (
-        "Write a simple one-sentence summary of this news article: "
-        f"{text}"
-    )
+    prompt = "Write a simple one-sentence summary of this news article: " f"{text}"
 
     try:
         inputs = tokenizer(
@@ -199,7 +303,7 @@ def evaluate_document(
 
 def main():
     """Main function to run the evaluation"""
-    setup_logging()
+    log_filename = setup_logging()
     logging.info("Starting semantic entropy evaluation")
 
     try:
@@ -274,6 +378,67 @@ def main():
             )
         else:
             logging.error("No results generated - all documents failed processing")
+
+        try:
+            logging.info("Generating visualizations...")
+            visualizer = ResultsVisualizer(log_filename)
+            results_df = visualizer.parse_log_file()
+
+            if results_df.empty:
+                logging.warning("No data available for visualization")
+                return
+
+            # Generate visualizations
+            for metric in [
+                "predictive_entropy",
+                "cluster_entropy",
+                "context_entailment",
+                "reference_alignment",
+            ]:
+                try:
+                    visualizer.plot_metric_distribution(metric)
+                    logging.info(f"Generated distribution plot for {metric}")
+                except Exception as e:
+                    logging.error(
+                        f"Failed to generate distribution plot for {metric}: {str(e)}"
+                    )
+
+            try:
+                visualizer.plot_metric_correlations()
+                logging.info("Generated correlation heatmap")
+            except Exception as e:
+                logging.error(f"Failed to generate correlation heatmap: {str(e)}")
+
+            # Scatter plots
+            metric_pairs = [
+                ("predictive_entropy", "cluster_entropy"),
+                ("context_entailment", "reference_alignment"),
+            ]
+            for x_metric, y_metric in metric_pairs:
+                try:
+                    visualizer.plot_metrics_scatter(x_metric, y_metric)
+                    logging.info(f"Generated scatter plot for {x_metric} vs {y_metric}")
+                except Exception as e:
+                    logging.error(
+                        f"Failed to generate scatter plot for {x_metric} vs {y_metric}: {str(e)}"
+                    )
+
+            try:
+                visualizer.plot_metrics_over_documents()
+                logging.info("Generated metrics over documents plot")
+            except Exception as e:
+                logging.error(
+                    f"Failed to generate metrics over documents plot: {str(e)}"
+                )
+
+            try:
+                summary_stats = visualizer.generate_summary_statistics()
+                logging.info(f"Generated summary statistics:\n{summary_stats}")
+            except Exception as e:
+                logging.error(f"Failed to generate summary statistics: {str(e)}")
+
+        except Exception as e:
+            logging.error(f"Failed to generate visualizations: {str(e)}")
 
     except Exception as e:
         logging.critical(f"Critical error in main execution: {str(e)}", exc_info=True)
