@@ -102,8 +102,8 @@ def predictive_entropy(log_probs):
     probs = np.exp(log_probs_normalized)
     probs = probs / np.sum(probs)
 
-    # Compute entropy using normalized probabilities
-    entropy = -np.sum(probs * log_probs_normalized)
+    # Use original log_probs here, not normalized ones
+    entropy = -np.sum(probs * log_probs)
     return entropy
 
 

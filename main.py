@@ -166,9 +166,9 @@ def evaluate_document(
             return None
 
         # Calculate semantic IDs
-        logging.debug("Calculating semantic IDs")
+        logging.info("Calculating semantic IDs")
         semantic_ids = get_semantic_ids(summaries, entailment_model)
-        logging.debug(f"Semantic IDs distribution: {np.bincount(semantic_ids)}")
+        logging.info(f"Semantic IDs distribution: {np.bincount(semantic_ids)}")
 
         # Calculate metrics
         logging.debug("Computing evaluation metrics")
