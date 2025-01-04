@@ -14,7 +14,6 @@ from scores import (
     context_entails_response,
     get_semantic_ids,
     predictive_entropy,
-    predictive_entropy_rao,
     cluster_assignment_entropy,
 )
 
@@ -113,21 +112,22 @@ def generate_summaries(model, tokenizer, text, doc_id, num_samples=10):
                 summaries.append(summary)
 
                 # Calculate log probabilities
-                scores = torch.stack(outputs.scores, dim=1)  # [batch_size, seq_length, vocab_size]
-                seq_length = min(outputs.sequences[0, 1:].size(0), scores.size(1))
-                sequence = outputs.sequences[0, 1:seq_length + 1]
+                scores = torch.stack(outputs.scores, dim=1)
+                seq_length = outputs.sequences[0, 1:].size(0)
 
-                # Use log_softmax for numerical stability
-                token_log_probs = torch.log_softmax(scores[0, :seq_length], dim=-1)
-                sequence_log_probs = token_log_probs.gather(-1, sequence.unsqueeze(-1))
-                log_prob = sequence_log_probs.sum().item()
+                if seq_length > scores.size(1):
+                    seq_length = scores.size(1)
+                    sequence = outputs.sequences[0, 1 : seq_length + 1]
+                else:
+                    sequence = outputs.sequences[0, 1 : seq_length + 1]
+
+                token_probs = torch.softmax(scores[0, :seq_length], dim=-1)
+                token_log_probs = torch.log(
+                    token_probs.gather(-1, sequence.unsqueeze(-1)) + 1e-10
+                )
+                log_prob = torch.sum(token_log_probs).item()
 
                 log_probs.append(log_prob)
-
-                # Add some debug logging
-                logging.info(f"Sequence length: {seq_length}")
-                logging.info(f"Token log probs: {sequence_log_probs.tolist()}")
-                logging.info(f"Total log prob: {log_prob}")
                 logging.debug(
                     f"Sample {sample_idx + 1} log probability: {log_prob:.4f}"
                 )
@@ -173,7 +173,6 @@ def evaluate_document(
         logging.debug("Computing evaluation metrics")
         metrics = {
             "predictive_entropy": predictive_entropy(log_probs),
-            "rao_entropy": predictive_entropy_rao(log_probs),
             "cluster_entropy": cluster_assignment_entropy(semantic_ids),
             "context_entailment": context_entails_response(
                 document, summaries, entailment_model
@@ -255,7 +254,6 @@ def main():
                 "avg_predictive_entropy": np.mean(
                     [r["predictive_entropy"] for r in results]
                 ),
-                "avg_rao_entropy": np.mean([r["rao_entropy"] for r in results]),
                 "avg_cluster_entropy": np.mean([r["cluster_entropy"] for r in results]),
                 "avg_context_entailment": np.mean(
                     [r["context_entailment"] for r in results]

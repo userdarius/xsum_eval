@@ -1,4 +1,5 @@
 import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
 
 
 def context_entails_response(context, responses, model):
@@ -97,18 +98,12 @@ def predictive_entropy(log_probs):
 
     `E[-log p(x)] ~= -1/N sum_i log p(x_i)`, i.e. the average token likelihood.
     """
-    entropy = -np.sum(log_probs) / len(log_probs)
-
-    return entropy
-
-def predictive_entropy_rao(log_probs):
-    """Compute Rao's entropy with normalized probabilities."""
-    # Normalize to prevent underflow
+    # Normalize to prevent underflow and get probabilities that sum to 1
     log_probs_normalized = log_probs - np.max(log_probs)
     probs = np.exp(log_probs_normalized)
     probs = probs / np.sum(probs)
 
-    # Compute Rao entropy using normalized probabilities
+    # Use original log_probs here, not normalized ones
     entropy = -np.sum(probs * log_probs)
     return entropy
 
