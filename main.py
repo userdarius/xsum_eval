@@ -150,7 +150,15 @@ def generate_summaries(
 
         for response, confidence_score, log_prob in responses:
             # Clean up the summary
-            summary = response.replace(prompt, "").strip().split(".")[0].strip() + "."
+            summary = response.replace(prompt, "").strip()
+
+            # Remove "Source: BBC News" and similar variations
+            source_patterns = ["Source: BBC News", "Source: BBC", "BBC News:", "BBC:"]
+            for pattern in source_patterns:
+                summary = summary.replace(pattern, "").strip()
+
+            # Take first sentence and ensure it ends with a period
+            summary = summary.split(".")[0].strip() + "."
 
             # Validate summary
             if len(summary) > 15 and summary != "." and not summary.startswith("http"):
