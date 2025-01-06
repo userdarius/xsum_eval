@@ -30,9 +30,18 @@ from scores import (
 RESULTS_DIR = "results"
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
+
+def create_experiment_dir():
+    """Create a timestamped directory for the current experiment"""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    experiment_dir = os.path.join(RESULTS_DIR, f"experiment_{timestamp}")
+    os.makedirs(experiment_dir, exist_ok=True)
+    return experiment_dir
+
+
 class ResultsVisualizer:
-    def __init__(self, results_list):
-        """Initialize with a list of result dictionaries"""
+    def __init__(self, results_list, experiment_dir):
+        """Initialize with a list of result dictionaries and experiment directory"""
         cleaned_results = [
             {
                 k: v
@@ -42,6 +51,7 @@ class ResultsVisualizer:
             for r in results_list
         ]
         self.results = pd.DataFrame(cleaned_results)
+        self.experiment_dir = experiment_dir
 
     def plot_metric_distribution(self, metric_name, title=None):
         """Create a distribution plot for a specific metric"""
@@ -50,7 +60,9 @@ class ResultsVisualizer:
         plt.title(title or f"Distribution of {metric_name}")
         plt.xlabel(metric_name)
         plt.ylabel("Count")
-        plt.savefig(os.path.join(RESULTS_DIR, f"{metric_name}_distribution.png"))
+        plt.savefig(
+            os.path.join(self.experiment_dir, f"{metric_name}_distribution.png")
+        )
         plt.close()
 
     def plot_metric_correlations(self):
@@ -61,7 +73,7 @@ class ResultsVisualizer:
         sns.heatmap(correlation_matrix, annot=True, cmap="coolwarm", center=0)
         plt.title("Correlation Between Uncertainty Metrics")
         plt.tight_layout()
-        plt.savefig(os.path.join(RESULTS_DIR, "metric_correlations.png"))
+        plt.savefig(os.path.join(self.experiment_dir, "metric_correlations.png"))
         plt.close()
 
     def plot_metrics_scatter(self, x_metric, y_metric):
@@ -71,7 +83,9 @@ class ResultsVisualizer:
         plt.title(f"{x_metric} vs {y_metric}")
         plt.xlabel(x_metric)
         plt.ylabel(y_metric)
-        plt.savefig(os.path.join(RESULTS_DIR, f"{x_metric}_vs_{y_metric}_scatter.png"))
+        plt.savefig(
+            os.path.join(self.experiment_dir, f"{x_metric}_vs_{y_metric}_scatter.png")
+        )
         plt.close()
 
     def plot_metrics_over_documents(self):
@@ -87,22 +101,21 @@ class ResultsVisualizer:
         plt.ylabel("Value")
         plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
         plt.tight_layout()
-        plt.savefig(os.path.join(RESULTS_DIR, "metrics_across_documents.png"))
+        plt.savefig(os.path.join(self.experiment_dir, "metrics_across_documents.png"))
         plt.close()
 
     def generate_summary_statistics(self):
         """Generate and save summary statistics"""
         summary_stats = self.results.describe()
-        summary_stats.to_csv(os.path.join(RESULTS_DIR, "summary_statistics.csv"))
+        summary_stats.to_csv(
+            os.path.join(self.experiment_dir, "summary_statistics.csv")
+        )
         return summary_stats
 
 
-def setup_logging():
+def setup_logging(experiment_dir):
     """Configure logging with detailed formatting and both file and console handlers"""
-    log_filename = os.path.join(
-        RESULTS_DIR, 
-        f"semantic_entropy_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-    )
+    log_filename = os.path.join(experiment_dir, f"semantic_entropy.log")
 
     file_formatter = logging.Formatter(
         "%(asctime)s | %(levelname)-8s | %(filename)s:%(lineno)d | %(funcName)s | %(message)s"
@@ -300,7 +313,9 @@ def evaluate_document(
 
 def main():
     """Main function to run the evaluation"""
-    log_filename = setup_logging()
+    experiment_dir = create_experiment_dir()
+    log_filename = setup_logging(experiment_dir)
+    logging.info(f"Created experiment directory: {experiment_dir}")
     logging.info("Starting semantic entropy evaluation with branching generation")
 
     try:
@@ -350,17 +365,18 @@ def main():
                     )
 
         # Generate visualizations and save results
+        # Generate visualizations and save results
         if results:
             logging.info("Generating visualizations and saving results...")
-            visualizer = ResultsVisualizer(results)
+            visualizer = ResultsVisualizer(results, experiment_dir)
 
             # Save results to CSV with updated path
-            output_file = os.path.join(
-                RESULTS_DIR,
-                f"xsum_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-            )
+            output_file = os.path.join(experiment_dir, "xsum_results.csv")
             df = pd.DataFrame(
-                [{k: v for k, v in r.items() if k != "generated_summaries"} for r in results]
+                [
+                    {k: v for k, v in r.items() if k != "generated_summaries"}
+                    for r in results
+                ]
             )
             df.to_csv(output_file, index=False)
             logging.info(f"Results saved to {output_file}")
