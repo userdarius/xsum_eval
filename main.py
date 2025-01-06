@@ -175,6 +175,43 @@ class ResultsVisualizer:
         plt.tight_layout()
         plt.savefig(os.path.join(self.experiment_dir, "metrics_across_documents.png"))
         plt.close()
+    
+    def plot_confidence_comparisons(self):
+        """Create visualizations comparing high and low confidence metrics"""
+        confidence_metrics = [
+            'cross_conf_semantic_similarity',
+            'factual_consistency_diff',
+            'ref_alignment_diff',
+            'log_prob_diff'
+        ]
+        
+        plt.figure(figsize=(12, 8))
+        sns.boxplot(data=pd.melt(self.results[confidence_metrics]))
+        plt.title('Confidence Comparison Metrics Distribution')
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.experiment_dir, 'confidence_comparisons.png'))
+        plt.close()
+        
+        # Create paired bar plots for high vs low confidence metrics
+        paired_metrics = [
+            ('high_conf_factual_consistency', 'avg_low_conf_factual_consistency'),
+            ('high_conf_ref_alignment', 'avg_low_conf_ref_alignment'),
+            ('high_conf_log_prob', 'avg_low_conf_log_prob')
+        ]
+        
+        plt.figure(figsize=(12, 6))
+        for i, (high_metric, low_metric) in enumerate(paired_metrics):
+            plt.subplot(1, 3, i+1)
+            data = pd.DataFrame({
+                'High Conf': self.results[high_metric],
+                'Low Conf': self.results[low_metric]
+            })
+            sns.boxplot(data=data)
+            plt.title(high_metric.replace('high_conf_', '').replace('_', ' ').title())
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.experiment_dir, 'confidence_paired_comparisons.png'))
+        plt.close()
 
     def generate_summary_statistics(self):
         """Generate and save summary statistics"""
@@ -274,6 +311,93 @@ def generate_summaries(
         return [], [], []
 
 
+def calculate_temperature_based_metrics(summaries, log_probs, confidence_scores, semantic_ids, document, reference, entailment_model):
+    """Calculate temperature-like metrics for branching generation outputs"""
+    metrics = {}
+    
+    # Sort summaries by confidence scores to simulate temperature-like behavior
+    sorted_indices = np.argsort(confidence_scores)[::-1]
+    high_conf_indices = sorted_indices[:1]  # Most confident (like low temp)
+    low_conf_indices = sorted_indices[1:]   # Less confident (like high temp)
+    
+    # Split summaries into high/low confidence groups (analogous to low/high temp)
+    high_conf_summaries = [summaries[i] for i in high_conf_indices]
+    low_conf_summaries = [summaries[i] for i in low_conf_indices]
+    
+    # Basic statistics
+    metrics['num_high_conf_samples'] = len(high_conf_summaries)
+    metrics['num_low_conf_samples'] = len(low_conf_summaries)
+    
+    if not high_conf_summaries or not low_conf_summaries:
+        logging.error("Missing samples for confidence comparison")
+        return metrics
+        
+    # Cross-confidence similarity metrics
+    high_conf_summary = high_conf_summaries[0]
+    
+    # Calculate average ROUGE between high and low confidence samples
+    rouge_scores_cross_conf = [
+        calculate_rouge(high_conf_summary, [low_conf_summary])
+        for low_conf_summary in low_conf_summaries
+    ]
+    
+    metrics['avg_cross_conf_rouge1'] = np.mean([s['rouge1'] for s in rouge_scores_cross_conf])
+    metrics['avg_cross_conf_rouge2'] = np.mean([s['rouge2'] for s in rouge_scores_cross_conf])
+    metrics['avg_cross_conf_rougeL'] = np.mean([s['rougeL'] for s in rouge_scores_cross_conf])
+    
+    # Calculate semantic similarity between high and low confidence samples
+    semantic_similarities = [
+        entailment_model.check_implication(high_conf_summary, low_conf_summary)
+        for low_conf_summary in low_conf_summaries
+    ]
+    metrics['avg_cross_conf_semantic_similarity'] = np.mean(semantic_similarities)
+    
+    # Compare factual consistency
+    high_conf_consistency = entailment_model.check_implication(document, high_conf_summary)
+    low_conf_consistencies = [
+        entailment_model.check_implication(document, summary)
+        for summary in low_conf_summaries
+    ]
+    
+    metrics['high_conf_factual_consistency'] = high_conf_consistency
+    metrics['avg_low_conf_factual_consistency'] = np.mean(low_conf_consistencies)
+    metrics['factual_consistency_diff'] = high_conf_consistency - np.mean(low_conf_consistencies)
+    
+    # Log probability statistics
+    high_conf_logprobs = [log_probs[i] for i in high_conf_indices]
+    low_conf_logprobs = [log_probs[i] for i in low_conf_indices]
+    
+    metrics['high_conf_log_prob'] = np.mean(high_conf_logprobs)
+    metrics['avg_low_conf_log_prob'] = np.mean(low_conf_logprobs)
+    metrics['log_prob_diff'] = metrics['high_conf_log_prob'] - metrics['avg_low_conf_log_prob']
+    
+    # Reference alignment comparison
+    high_conf_ref_alignment = entailment_model.check_implication(reference, high_conf_summary)
+    low_conf_ref_alignments = [
+        entailment_model.check_implication(reference, summary)
+        for summary in low_conf_summaries
+    ]
+    
+    metrics['high_conf_ref_alignment'] = high_conf_ref_alignment
+    metrics['avg_low_conf_ref_alignment'] = np.mean(low_conf_ref_alignments)
+    metrics['ref_alignment_diff'] = high_conf_ref_alignment - np.mean(low_conf_ref_alignments)
+    
+    # Additional branching-specific metrics
+    metrics['confidence_entropy'] = -np.sum(
+        (confidence_scores / np.sum(confidence_scores)) * 
+        np.log(confidence_scores / np.sum(confidence_scores))
+    )
+    
+    # Confidence-based cluster analysis
+    high_conf_cluster = semantic_ids[high_conf_indices[0]]
+    metrics['high_conf_cluster_size'] = np.sum(semantic_ids == high_conf_cluster)
+    metrics['confidence_cluster_correlation'] = np.corrcoef(
+        confidence_scores, 
+        [1 if id == high_conf_cluster else 0 for id in semantic_ids]
+    )[0, 1]
+    
+    return metrics
+
 def evaluate_document(
     document, reference, doc_id, model, tokenizer, entailment_model, num_branches=10
 ):
@@ -308,6 +432,12 @@ def evaluate_document(
         logging.info("Calculating ROUGE scores")
         rouge_scores = calculate_rouge(reference, summaries)
         logging.info(f"ROUGE scores: {rouge_scores}")
+
+        # Calculate temperature-based metrics
+        temp_metrics = calculate_temperature_based_metrics(
+            summaries, log_probs, confidence_scores, semantic_ids,
+            document, reference, entailment_model
+        )
 
         context_entailment_score = context_entails_response(
             document, summaries, entailment_model
@@ -352,6 +482,7 @@ def evaluate_document(
             "rouge1_score": rouge_scores["rouge1"],
             "rouge2_score": rouge_scores["rouge2"],
             "rougeL_score": rouge_scores["rougeL"],
+            **temp_metrics,  # Add temperature-based metrics
             # New metrics from SQuAD implementation
             "mean_sequence_length": np.mean([len(s.split()) for s in summaries]),
             "response_diversity": len(set(summaries)) / len(summaries),
