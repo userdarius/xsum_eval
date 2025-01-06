@@ -331,6 +331,13 @@ def main():
         eval_dataset = dataset["validation"].select(range(5))
         logging.info(f"Evaluation dataset size: {len(eval_dataset)} documents")
 
+        # NLTK punkt tokenizer 
+        try:
+            nltk.data.find('tokenizers/punkt')
+        except LookupError:
+            logging.info("Downloading NLTK punkt tokenizer")
+            nltk.download('punkt')
+
         # Initialize results storage
         results = []
 
@@ -378,6 +385,8 @@ def main():
                 "avg_reference_alignment": np.mean(
                     [r["reference_alignment"] for r in results]
                 ),
+                 "avg_bleu_score": np.mean([r["bleu_score"] for r in results]),
+
             }
 
             logging.info("Final Aggregate Metrics:")
@@ -400,6 +409,8 @@ def main():
                 "cluster_entropy",
                 "context_entailment",
                 "reference_alignment",
+                "bleu_score",
+
             ]:
                 try:
                     visualizer.plot_metric_distribution(metric)
@@ -419,6 +430,8 @@ def main():
             metric_pairs = [
                 ("predictive_entropy", "cluster_entropy"),
                 ("context_entailment", "reference_alignment"),
+                ("bleu_score", "reference_alignment"),
+                ("bleu_score", "context_entailment"),
             ]
             for x_metric, y_metric in metric_pairs:
                 try:
