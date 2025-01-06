@@ -20,6 +20,41 @@ from scores import (
     predictive_entropy,
     cluster_assignment_entropy,
 )
+import nltk
+from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+
+def calculate_bleu(reference, candidates):
+    """
+    Calculate BLEU score for a set of candidate summaries against a reference
+    
+    Args:
+        reference (str): The reference summary
+        candidates (list): List of generated candidate summaries
+    
+    Returns:
+        float: Average BLEU score across all candidates
+    """
+    # Tokenize reference
+    reference_tokens = nltk.word_tokenize(reference.lower())
+    
+    # Initialize smoothing function for BLEU
+    smoother = SmoothingFunction().method1
+    
+    # Calculate BLEU for each candidate
+    bleu_scores = []
+    for candidate in candidates:
+        candidate_tokens = nltk.word_tokenize(candidate.lower())
+        # Calculate BLEU with equal weights for 1-4 grams
+        score = sentence_bleu(
+            [reference_tokens], 
+            candidate_tokens,
+            weights=(0.25, 0.25, 0.25, 0.25),
+            smoothing_function=smoother
+        )
+        bleu_scores.append(score)
+    
+    # Return average BLEU score
+    return np.mean(bleu_scores)
 
 
 class ResultsVisualizer:
@@ -244,6 +279,11 @@ def evaluate_document(
         semantic_ids = get_semantic_ids(summaries, entailment_model)
         logging.info(f"Semantic IDs distribution: {np.bincount(semantic_ids)}")
 
+        # Calculate BLEU score
+        logging.info("Calculating BLEU score")
+        bleu_score = calculate_bleu(reference, summaries)
+        logging.info(f"BLEU score: {bleu_score:.4f}")
+
         # Calculate metrics
         logging.debug("Computing evaluation metrics")
         metrics = {
@@ -252,6 +292,8 @@ def evaluate_document(
             "context_entailment": context_entails_response(
                 document, summaries, entailment_model
             ),
+            "bleu_score": bleu_score,
+
             "reference_alignment": entailment_model.check_implication(
                 reference, summaries[0]
             ),
