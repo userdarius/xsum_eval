@@ -1,5 +1,5 @@
 """
-Main script to run the semantic entropy evaluation on XSum dataset with enhanced logging
+Main script to run the semantic entropy evaluation on XSum dataset with branching generation
 """
 
 import sys
@@ -12,7 +12,11 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import json
-from model import load_model_and_tokenizer, EntailmentDeberta
+from model import (
+    load_model_and_tokenizer,
+    EntailmentDeberta,
+    generate_branching_responses,
+)
 from data import get_dataset
 from scores import (
     context_entails_response,
@@ -25,7 +29,6 @@ from scores import (
 class ResultsVisualizer:
     def __init__(self, results_list):
         """Initialize with a list of result dictionaries"""
-        # Convert results list to DataFrame, excluding generated_summaries
         cleaned_results = [
             {
                 k: v
@@ -48,9 +51,11 @@ class ResultsVisualizer:
 
     def plot_metric_correlations(self):
         """Create a correlation heatmap between different metrics"""
-        plt.figure(figsize=(10, 8))
-        sns.heatmap(self.results.corr(), annot=True, cmap="coolwarm", center=0)
-        plt.title("Correlation between Metrics")
+        plt.figure(figsize=(12, 10))
+        numeric_cols = self.results.select_dtypes(include=[np.number]).columns
+        correlation_matrix = self.results[numeric_cols].corr()
+        sns.heatmap(correlation_matrix, annot=True, cmap="coolwarm", center=0)
+        plt.title("Correlation Between Uncertainty Metrics")
         plt.tight_layout()
         plt.savefig("metric_correlations.png")
         plt.close()
@@ -69,12 +74,10 @@ class ResultsVisualizer:
         """Plot all metrics across documents"""
         metrics = [col for col in self.results.columns if col != "document_id"]
         plt.figure(figsize=(12, 6))
-
         for metric in metrics:
             plt.plot(
                 range(len(self.results)), self.results[metric], label=metric, marker="o"
             )
-
         plt.title("Metrics across Documents")
         plt.xlabel("Document Index")
         plt.ylabel("Value")
@@ -90,138 +93,89 @@ class ResultsVisualizer:
         return summary_stats
 
 
-# Enhanced logging configuration
 def setup_logging():
     """Configure logging with detailed formatting and both file and console handlers"""
     log_filename = f"semantic_entropy_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
-    # Create formatters and handlers
     file_formatter = logging.Formatter(
         "%(asctime)s | %(levelname)-8s | %(filename)s:%(lineno)d | %(funcName)s | %(message)s"
     )
     console_formatter = logging.Formatter("%(asctime)s | %(levelname)-8s | %(message)s")
 
-    # File handler
     file_handler = logging.FileHandler(log_filename)
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(file_formatter)
 
-    # Console handler
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(console_formatter)
 
-    # Configure root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
 
     logging.info(f"Logging initialized. Log file: {log_filename}")
-
     return log_filename
 
 
 def generate_summaries(
-    model, tokenizer, text, reference_summary, doc_id, num_samples=10
+    model, tokenizer, text, reference_summary, doc_id, num_branches=10
 ):
-    """Generate multiple summaries for a given text"""
-    logging.info(f"Generating {num_samples} summaries for document ID: {doc_id}")
+    """Generate multiple summaries using branching generation"""
+    logging.info(f"Generating {num_branches} summaries for document ID: {doc_id}")
     logging.debug(f"Input text length: {len(text)} characters")
 
-    prompt = "Write a simple one-sentence summary of this news article: " f"{text}"
+    prompt = "Write a simple one-sentence summary of this news article: " + text
 
     try:
-        inputs = tokenizer(
+        # Use branching generation method
+        responses = generate_branching_responses(
+            model,
+            tokenizer,
             prompt,
-            return_tensors="pt",
-            max_length=512,
-            truncation=True,
-        ).to(model.device)
-        logging.debug(f"Tokenized input length: {inputs['input_ids'].size()}")
-    except Exception as e:
-        logging.error(f"Tokenization failed: {str(e)}")
-        raise
+            max_length=30,
+            num_branches=num_branches,
+        )
 
-    summaries = []
-    log_probs = []
-    logging.info(f"Document: {text}")
-    logging.info(f"Reference summary: {reference_summary}")
+        # Sort responses by confidence score
+        responses.sort(key=lambda x: x[1], reverse=True)
 
-    for sample_idx in range(num_samples):
-        logging.debug(f"Generating sample {sample_idx + 1}/{num_samples}")
-        try:
-            outputs = model.generate(
-                **inputs,
-                do_sample=True,
-                max_new_tokens=30,
-                min_new_tokens=10,
-                temperature=0.5,
-                top_p=0.85,
-                no_repeat_ngram_size=3,
-                length_penalty=1.0,
-                return_dict_in_generate=True,
-                output_scores=True,
-                pad_token_id=tokenizer.pad_token_id,
-            )
+        summaries = []
+        confidence_scores = []
+        log_probs = []
 
-            full_output = tokenizer.decode(
-                outputs.sequences[0], skip_special_tokens=True
-            )
-            logging.debug(f"Raw output length: {len(full_output)} characters")
+        logging.info(f"Document: {text}")
+        logging.info(f"Reference summary: {reference_summary}")
 
+        for response, confidence_score, log_prob in responses:
             # Clean up the summary
-            summary = (
-                full_output.replace(prompt, "")
-                .strip()
-                .split(".")[0]  # Take first sentence
-                .strip()
-                + "."
-            )
+            summary = response.replace(prompt, "").strip().split(".")[0].strip() + "."
 
             # Validate summary
             if len(summary) > 15 and summary != "." and not summary.startswith("http"):
-                logging.info(
-                    f"Sample {sample_idx + 1} - Valid summary generated: {summary}"
-                )
+                logging.info(f"Valid summary generated: {summary}")
+                logging.debug(f"Confidence score: {confidence_score}")
+                logging.debug(f"Log probability: {log_prob}")
+
                 summaries.append(summary)
-
-                # Calculate log probabilities
-                scores = torch.stack(outputs.scores, dim=1)
-                seq_length = outputs.sequences[0, 1:].size(0)
-
-                if seq_length > scores.size(1):
-                    seq_length = scores.size(1)
-                    sequence = outputs.sequences[0, 1 : seq_length + 1]
-                else:
-                    sequence = outputs.sequences[0, 1 : seq_length + 1]
-
-                token_probs = torch.softmax(scores[0, :seq_length], dim=-1)
-                token_log_probs = torch.log(
-                    token_probs.gather(-1, sequence.unsqueeze(-1)) + 1e-10
-                )
-                log_prob = torch.sum(token_log_probs).item()
-
+                confidence_scores.append(confidence_score)
                 log_probs.append(log_prob)
-                logging.debug(
-                    f"Sample {sample_idx + 1} log probability: {log_prob:.4f}"
-                )
             else:
-                logging.warning(f"Sample {sample_idx + 1} failed validation: {summary}")
-                torch.cuda.empty_cache()
+                logging.warning(f"Summary failed validation: {summary}")
 
-        except Exception as e:
-            logging.error(f"Error generating sample {sample_idx + 1}: {str(e)}")
-            continue
+        logging.info(
+            f"Successfully generated {len(summaries)}/{num_branches} valid summaries"
+        )
+        return summaries, confidence_scores, log_probs
 
-    logging.info(
-        f"Successfully generated {len(summaries)}/{num_samples} valid summaries"
-    )
-    return summaries, log_probs
+    except Exception as e:
+        logging.error(f"Error in generate_summaries: {str(e)}")
+        return [], [], []
 
 
 def evaluate_document(
-    document, reference, doc_id, model, tokenizer, entailment_model, num_samples=10
+    document, reference, doc_id, model, tokenizer, entailment_model, num_branches=10
 ):
     """Evaluate semantic entropy metrics for a single document"""
     logging.info(f"Starting evaluation for document ID: {doc_id}")
@@ -230,9 +184,9 @@ def evaluate_document(
     )
 
     try:
-        # Generate multiple summaries
-        summaries, log_probs = generate_summaries(
-            model, tokenizer, document, reference, doc_id, num_samples
+        # Generate multiple summaries using branching
+        summaries, confidence_scores, log_probs = generate_summaries(
+            model, tokenizer, document, reference, doc_id, num_branches
         )
 
         if not summaries:
@@ -242,13 +196,41 @@ def evaluate_document(
         # Calculate semantic IDs
         logging.info("Calculating semantic IDs")
         semantic_ids = get_semantic_ids(summaries, entailment_model)
-        logging.info(f"Semantic IDs distribution: {np.bincount(semantic_ids)}")
+        semantic_cluster_counts = np.bincount(semantic_ids)
+        logging.info(f"Semantic IDs distribution: {semantic_cluster_counts}")
 
-        # Calculate metrics
-        logging.debug("Computing evaluation metrics")
+        context_entailment_score = context_entails_response(
+            document, summaries, entailment_model
+        )
+        answer_entailment_score = context_entails_response(
+            reference, summaries, entailment_model
+        )
+
+        # Print entailment scores (existing logic)
+        print(f"Context entailment score: {context_entailment_score}")
+        if context_entailment_score == 0:
+            print(f"Contradiction")
+        elif context_entailment_score == 1:
+            print(f"Neutral")
+        else:
+            print(f"Entailment")
+
+        print(f"Answer entailment score: {answer_entailment_score}")
+        if answer_entailment_score == 0:
+            print(f"Contradiction")
+        elif answer_entailment_score == 1:
+            print(f"Neutral")
+        else:
+            print(f"Entailment")
+
+        # Calculate basic metrics first
+        predictive_ent = predictive_entropy(log_probs)
+        cluster_ent = cluster_assignment_entropy(semantic_ids)
+
         metrics = {
-            "predictive_entropy": predictive_entropy(log_probs),
-            "cluster_entropy": cluster_assignment_entropy(semantic_ids),
+            "document_id": doc_id,
+            "predictive_entropy": predictive_ent,
+            "cluster_entropy": cluster_ent,
             "context_entailment": context_entails_response(
                 document, summaries, entailment_model
             ),
@@ -256,6 +238,32 @@ def evaluate_document(
                 reference, summaries[0]
             ),
             "generated_summaries": summaries,
+            # New metrics from SQuAD implementation
+            "mean_sequence_length": np.mean([len(s.split()) for s in summaries]),
+            "response_diversity": len(set(summaries)) / len(summaries),
+            "max_logprob": max(log_probs),
+            "min_logprob": min(log_probs),
+            "logprob_range": max(log_probs) - min(log_probs),
+            "num_semantic_clusters": len(set(semantic_ids)),
+            "largest_cluster_size": max(semantic_cluster_counts),
+            "cluster_size_std": np.std(semantic_cluster_counts),
+            "context_answer_entailment_gap": abs(
+                context_entailment_score - answer_entailment_score
+            ),
+            "majority_summary_frequency": max(semantic_cluster_counts)
+            / len(semantic_ids),
+            "semantic_agreement_score": len(set(semantic_ids)) / len(summaries),
+            "logprob_confidence_correlation": np.corrcoef(log_probs, confidence_scores)[
+                0, 1
+            ],
+            "entropy_cluster_correlation": abs(predictive_ent - cluster_ent),
+            "high_confidence_entailment": np.mean(
+                [
+                    c
+                    for c, s in zip(confidence_scores, semantic_ids)
+                    if s == semantic_ids[0]
+                ]
+            ),
         }
 
         # Log metrics
@@ -273,7 +281,7 @@ def evaluate_document(
 def main():
     """Main function to run the evaluation"""
     log_filename = setup_logging()
-    logging.info("Starting semantic entropy evaluation")
+    logging.info("Starting semantic entropy evaluation with branching generation")
 
     try:
         # Load models and tokenizer
@@ -314,7 +322,6 @@ def main():
             )
 
             if metrics:
-                metrics["document_id"] = item["id"]
                 results.append(metrics)
 
                 if torch.cuda.is_available():
@@ -322,87 +329,40 @@ def main():
                         f"GPU memory after document {idx + 1}: {torch.cuda.memory_allocated() / 1e9:.2f} GB"
                     )
 
-        # Calculate and log aggregate metrics
-        logging.info("\nCalculating aggregate metrics")
+        # Generate visualizations and save results
         if results:
-            agg_metrics = {
-                "avg_predictive_entropy": np.mean(
-                    [r["predictive_entropy"] for r in results]
-                ),
-                "avg_cluster_entropy": np.mean([r["cluster_entropy"] for r in results]),
-                "avg_context_entailment": np.mean(
-                    [r["context_entailment"] for r in results]
-                ),
-                "avg_reference_alignment": np.mean(
-                    [r["reference_alignment"] for r in results]
-                ),
-            }
+            logging.info("Generating visualizations and saving results...")
+            visualizer = ResultsVisualizer(results)
 
-            logging.info("Final Aggregate Metrics:")
-            for metric, value in agg_metrics.items():
-                logging.info(f"{metric}: {value:.4f}")
+            # Save results to CSV
+            output_file = f"xsum_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            df = pd.DataFrame(
+                [
+                    {k: v for k, v in r.items() if k != "generated_summaries"}
+                    for r in results
+                ]
+            )
+            df.to_csv(output_file, index=False)
+            logging.info(f"Results saved to {output_file}")
+
+            # Generate all visualizations
+            try:
+                visualizer.plot_metric_correlations()
+                visualizer.plot_metrics_over_documents()
+                summary_stats = visualizer.generate_summary_statistics()
+                logging.info(f"Generated summary statistics:\n{summary_stats}")
+
+                for metric in df.select_dtypes(include=[np.number]).columns:
+                    visualizer.plot_metric_distribution(metric)
+
+            except Exception as e:
+                logging.error(f"Error generating visualizations: {str(e)}")
 
             logging.info(
                 f"Successfully processed {len(results)}/{len(eval_dataset)} documents"
             )
         else:
             logging.error("No results generated - all documents failed processing")
-
-        try:
-            logging.info("Generating visualizations...")
-            visualizer = ResultsVisualizer(results)  # Pass the results list directly
-
-            # Generate visualizations
-            for metric in [
-                "predictive_entropy",
-                "cluster_entropy",
-                "context_entailment",
-                "reference_alignment",
-            ]:
-                try:
-                    visualizer.plot_metric_distribution(metric)
-                    logging.info(f"Generated distribution plot for {metric}")
-                except Exception as e:
-                    logging.error(
-                        f"Failed to generate distribution plot for {metric}: {str(e)}"
-                    )
-
-            try:
-                visualizer.plot_metric_correlations()
-                logging.info("Generated correlation heatmap")
-            except Exception as e:
-                logging.error(f"Failed to generate correlation heatmap: {str(e)}")
-
-            # Scatter plots
-            metric_pairs = [
-                ("predictive_entropy", "cluster_entropy"),
-                ("context_entailment", "reference_alignment"),
-            ]
-            for x_metric, y_metric in metric_pairs:
-                try:
-                    visualizer.plot_metrics_scatter(x_metric, y_metric)
-                    logging.info(f"Generated scatter plot for {x_metric} vs {y_metric}")
-                except Exception as e:
-                    logging.error(
-                        f"Failed to generate scatter plot for {x_metric} vs {y_metric}: {str(e)}"
-                    )
-
-            try:
-                visualizer.plot_metrics_over_documents()
-                logging.info("Generated metrics over documents plot")
-            except Exception as e:
-                logging.error(
-                    f"Failed to generate metrics over documents plot: {str(e)}"
-                )
-
-            try:
-                summary_stats = visualizer.generate_summary_statistics()
-                logging.info(f"Generated summary statistics:\n{summary_stats}")
-            except Exception as e:
-                logging.error(f"Failed to generate summary statistics: {str(e)}")
-
-        except Exception as e:
-            logging.error(f"Failed to generate visualizations: {str(e)}")
 
     except Exception as e:
         logging.critical(f"Critical error in main execution: {str(e)}", exc_info=True)
