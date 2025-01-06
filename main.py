@@ -25,6 +25,41 @@ from scores import (
     predictive_entropy,
     cluster_assignment_entropy,
 )
+import nltk
+from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+
+def calculate_bleu(reference, candidates):
+    """
+    Calculate BLEU score for a set of candidate summaries against a reference
+    
+    Args:
+        reference (str): The reference summary
+        candidates (list): List of generated candidate summaries
+    
+    Returns:
+        float: Average BLEU score across all candidates
+    """
+    # Tokenize reference
+    reference_tokens = nltk.word_tokenize(reference.lower())
+    
+    # Initialize smoothing function for BLEU
+    smoother = SmoothingFunction().method1
+    
+    # Calculate BLEU for each candidate
+    bleu_scores = []
+    for candidate in candidates:
+        candidate_tokens = nltk.word_tokenize(candidate.lower())
+        # Calculate BLEU with equal weights for 1-4 grams
+        score = sentence_bleu(
+            [reference_tokens], 
+            candidate_tokens,
+            weights=(0.25, 0.25, 0.25, 0.25),
+            smoothing_function=smoother
+        )
+        bleu_scores.append(score)
+    
+    # Return average BLEU score
+    return np.mean(bleu_scores)
 
 
 RESULTS_DIR = "results"
@@ -227,6 +262,11 @@ def evaluate_document(
         semantic_cluster_counts = np.bincount(semantic_ids)
         logging.info(f"Semantic IDs distribution: {semantic_cluster_counts}")
 
+        # Calculate BLEU score
+        logging.info("Calculating BLEU score")
+        bleu_score = calculate_bleu(reference, summaries)
+        logging.info(f"BLEU score: {bleu_score:.4f}")
+
         context_entailment_score = context_entails_response(
             document, summaries, entailment_model
         )
@@ -266,6 +306,7 @@ def evaluate_document(
                 reference, summaries[0]
             ),
             "generated_summaries": summaries,
+            "bleu_score": bleu_score,
             # New metrics from SQuAD implementation
             "mean_sequence_length": np.mean([len(s.split()) for s in summaries]),
             "response_diversity": len(set(summaries)) / len(summaries),
@@ -332,6 +373,13 @@ def main():
         eval_dataset = dataset["validation"].select(range(5))
         logging.info(f"Evaluation dataset size: {len(eval_dataset)} documents")
 
+        # Ensure NLTK punkt tokenizer is downloaded
+        try:
+            nltk.data.find('tokenizers/punkt')
+        except LookupError:
+            logging.info("Downloading NLTK punkt tokenizer")
+            nltk.download('punkt')
+            
         # Initialize results storage
         results = []
 
