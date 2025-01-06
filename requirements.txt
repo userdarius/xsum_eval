@@ -10,3 +10,4 @@ timeout_decorator
 tqdm
 torch
 nltk
+rouge_score

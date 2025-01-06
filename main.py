@@ -22,37 +22,73 @@ from scores import (
 )
 import nltk
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+from rouge_score import rouge_scorer
+
+
+def calculate_rouge(reference, candidates):
+    """
+    Calculate ROUGE scores for a set of candidate summaries against a reference
+
+    Args:
+        reference (str): The reference summary
+        candidates (list): List of generated candidate summaries
+
+    Returns:
+        dict: Average ROUGE scores across all candidates
+    """
+    # Initialize ROUGE scorer with ROUGE-1, ROUGE-2, and ROUGE-L
+    scorer = rouge_scorer.RougeScorer(["rouge1", "rouge2", "rougeL"], use_stemmer=True)
+
+    # Calculate scores for each candidate
+    rouge_scores = {"rouge1": [], "rouge2": [], "rougeL": []}
+
+    for candidate in candidates:
+        scores = scorer.score(reference, candidate)
+        # Store F1 scores for each metric
+        rouge_scores["rouge1"].append(scores["rouge1"].fmeasure)
+        rouge_scores["rouge2"].append(scores["rouge2"].fmeasure)
+        rouge_scores["rougeL"].append(scores["rougeL"].fmeasure)
+
+    # Calculate average scores
+    avg_scores = {
+        "rouge1": np.mean(rouge_scores["rouge1"]),
+        "rouge2": np.mean(rouge_scores["rouge2"]),
+        "rougeL": np.mean(rouge_scores["rougeL"]),
+    }
+
+    return avg_scores
+
 
 def calculate_bleu(reference, candidates):
     """
     Calculate BLEU score for a set of candidate summaries against a reference
-    
+
     Args:
         reference (str): The reference summary
         candidates (list): List of generated candidate summaries
-    
+
     Returns:
         float: Average BLEU score across all candidates
     """
     # Tokenize reference
     reference_tokens = nltk.word_tokenize(reference.lower())
-    
+
     # Initialize smoothing function for BLEU
     smoother = SmoothingFunction().method1
-    
+
     # Calculate BLEU for each candidate
     bleu_scores = []
     for candidate in candidates:
         candidate_tokens = nltk.word_tokenize(candidate.lower())
         # Calculate BLEU with equal weights for 1-4 grams
         score = sentence_bleu(
-            [reference_tokens], 
+            [reference_tokens],
             candidate_tokens,
             weights=(0.25, 0.25, 0.25, 0.25),
-            smoothing_function=smoother
+            smoothing_function=smoother,
         )
         bleu_scores.append(score)
-    
+
     # Return average BLEU score
     return np.mean(bleu_scores)
 
@@ -284,6 +320,11 @@ def evaluate_document(
         bleu_score = calculate_bleu(reference, summaries)
         logging.info(f"BLEU score: {bleu_score:.4f}")
 
+        # Calculate ROUGE score
+        logging.info("Calculating ROUGE score")
+        rouge_scores = calculate_rouge(reference, summaries)
+        logging.info(f"ROUGE score: {rouge_scores}")
+
         # Calculate metrics
         logging.debug("Computing evaluation metrics")
         metrics = {
@@ -293,7 +334,9 @@ def evaluate_document(
                 document, summaries, entailment_model
             ),
             "bleu_score": bleu_score,
-
+            "rouge1_score": rouge_scores["rouge1"],
+            "rouge2_score": rouge_scores["rouge2"],
+            "rougeL_score": rouge_scores["rougeL"],
             "reference_alignment": entailment_model.check_implication(
                 reference, summaries[0]
             ),
@@ -331,12 +374,12 @@ def main():
         eval_dataset = dataset["validation"].select(range(5))
         logging.info(f"Evaluation dataset size: {len(eval_dataset)} documents")
 
-        # NLTK punkt tokenizer 
+        # NLTK punkt tokenizer
         try:
-            nltk.data.find('tokenizers/punkt')
+            nltk.data.find("tokenizers/punkt")
         except LookupError:
             logging.info("Downloading NLTK punkt tokenizer")
-            nltk.download('punkt')
+            nltk.download("punkt")
 
         # Initialize results storage
         results = []
@@ -385,8 +428,10 @@ def main():
                 "avg_reference_alignment": np.mean(
                     [r["reference_alignment"] for r in results]
                 ),
-                 "avg_bleu_score": np.mean([r["bleu_score"] for r in results]),
-
+                "avg_bleu_score": np.mean([r["bleu_score"] for r in results]),
+                "avg_rouge1_score": np.mean([r["rouge1_score"] for r in results]),
+                "avg_rouge2_score": np.mean([r["rouge2_score"] for r in results]),
+                "avg_rougeL_score": np.mean([r["rougeL_score"] for r in results]),
             }
 
             logging.info("Final Aggregate Metrics:")
@@ -410,7 +455,9 @@ def main():
                 "context_entailment",
                 "reference_alignment",
                 "bleu_score",
-
+                "rouge1_score",
+                "rouge2_score",
+                "rougeL_score",
             ]:
                 try:
                     visualizer.plot_metric_distribution(metric)
@@ -428,11 +475,25 @@ def main():
 
             # Scatter plots
             metric_pairs = [
+                # Uncertainty correlations
                 ("predictive_entropy", "cluster_entropy"),
+                ("predictive_entropy", "rouge1_score"),
+                ("cluster_entropy", "rouge1_score"),
+                # Semantic correlations
                 ("context_entailment", "reference_alignment"),
-                ("bleu_score", "reference_alignment"),
-                ("bleu_score", "context_entailment"),
+                ("context_entailment", "rougeL_score"),
+                ("reference_alignment", "rouge1_score"),
+                # N-gram metrics correlations
+                ("bleu_score", "rouge1_score"),
+                ("bleu_score", "rouge2_score"),
+                ("bleu_score", "rougeL_score"),
+                ("rouge1_score", "rouge2_score"),
+                ("rouge2_score", "rougeL_score"),
+                # Cross-category key correlations
+                ("cluster_entropy", "rougeL_score"),
+                ("predictive_entropy", "reference_alignment"),
             ]
+
             for x_metric, y_metric in metric_pairs:
                 try:
                     visualizer.plot_metrics_scatter(x_metric, y_metric)
