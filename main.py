@@ -549,7 +549,14 @@ def main():
         eval_dataset = dataset["validation"].select(range(5))
         logging.info(f"Evaluation dataset size: {len(eval_dataset)} documents")
 
-        # Ensure NLTK punkt tokenizer is downloaded
+        # NLTK punkt tokenizers
+        try:
+            nltk.data.find('tokenizers/punkt_tab')
+        except LookupError:
+            logging.info("Downloading NLTK punkt_tab tokenizer")
+            nltk.download('punkt_tab')
+            
+        # Also ensure we have the regular punkt tokenizer
         try:
             nltk.data.find('tokenizers/punkt')
         except LookupError:
