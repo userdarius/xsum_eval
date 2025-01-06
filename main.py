@@ -27,6 +27,43 @@ from scores import (
 )
 import nltk
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+from rouge_score import rouge_scorer
+
+def calculate_rouge(reference, candidates):
+    """
+    Calculate ROUGE scores for a set of candidate summaries against a reference
+    
+    Args:
+        reference (str): The reference summary
+        candidates (list): List of generated candidate summaries
+    
+    Returns:
+        dict: Average ROUGE scores across all candidates
+    """
+    # Initialize the ROUGE scorer with multiple ROUGE variants
+    scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
+    
+    # Calculate ROUGE for each candidate
+    rouge_scores = {
+        'rouge1': [],
+        'rouge2': [],
+        'rougeL': []
+    }
+    
+    for candidate in candidates:
+        scores = scorer.score(reference, candidate)
+        rouge_scores['rouge1'].append(scores['rouge1'].fmeasure)
+        rouge_scores['rouge2'].append(scores['rouge2'].fmeasure)
+        rouge_scores['rougeL'].append(scores['rougeL'].fmeasure)
+    
+    # Calculate average scores
+    avg_scores = {
+        'rouge1': np.mean(rouge_scores['rouge1']),
+        'rouge2': np.mean(rouge_scores['rouge2']),
+        'rougeL': np.mean(rouge_scores['rougeL'])
+    }
+    
+    return avg_scores
 
 def calculate_bleu(reference, candidates):
     """
@@ -267,6 +304,11 @@ def evaluate_document(
         bleu_score = calculate_bleu(reference, summaries)
         logging.info(f"BLEU score: {bleu_score:.4f}")
 
+        # Calculate ROUGE scores
+        logging.info("Calculating ROUGE scores")
+        rouge_scores = calculate_rouge(reference, summaries)
+        logging.info(f"ROUGE scores: {rouge_scores}")
+
         context_entailment_score = context_entails_response(
             document, summaries, entailment_model
         )
@@ -307,6 +349,9 @@ def evaluate_document(
             ),
             "generated_summaries": summaries,
             "bleu_score": bleu_score,
+            "rouge1_score": rouge_scores["rouge1"],
+            "rouge2_score": rouge_scores["rouge2"],
+            "rougeL_score": rouge_scores["rougeL"],
             # New metrics from SQuAD implementation
             "mean_sequence_length": np.mean([len(s.split()) for s in summaries]),
             "response_diversity": len(set(summaries)) / len(summaries),
