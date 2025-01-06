@@ -9,3 +9,4 @@ tiktoken
 timeout_decorator
 tqdm
 torch
+nltk
