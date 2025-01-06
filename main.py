@@ -274,10 +274,15 @@ def evaluate_document(
             ),
         }
 
-        # Log metrics
+        # Log metrics with type checking
         for metric, value in metrics.items():
-            if metric != "generated_summaries":
-                logging.info(f"Document {doc_id} - {metric}: {value:.4f}")
+            if metric != "generated_summaries":  # Skip logging the summaries list
+                if isinstance(value, (float, np.floating)):
+                    logging.info(f"Document {doc_id} - {metric}: {value:.4f}")
+                elif isinstance(value, (int, np.integer)):
+                    logging.info(f"Document {doc_id} - {metric}: {value}")
+                else:
+                    logging.info(f"Document {doc_id} - {metric}: {value}")
 
         return metrics
 
