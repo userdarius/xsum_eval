@@ -107,6 +107,45 @@ class ResultsVisualizer:
         ]
         self.results = pd.DataFrame(cleaned_results)
 
+    def plot_temperature_comparisons(self):
+        """Create visualizations comparing low and high temperature metrics"""
+        temp_metrics = [
+            "cross_temp_semantic_similarity",
+            "factual_consistency_diff",
+            "ref_alignment_diff",
+            "log_prob_diff",
+        ]
+
+        plt.figure(figsize=(12, 8))
+        sns.boxplot(data=pd.melt(self.results[temp_metrics]))
+        plt.title("Temperature Comparison Metrics Distribution")
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        plt.savefig("temperature_comparisons.png")
+        plt.close()
+
+        # Create paired bar plots for low vs high temp metrics
+        paired_metrics = [
+            ("low_temp_factual_consistency", "avg_high_temp_factual_consistency"),
+            ("low_temp_ref_alignment", "avg_high_temp_ref_alignment"),
+            ("low_temp_log_prob", "avg_high_temp_log_prob"),
+        ]
+
+        plt.figure(figsize=(12, 6))
+        for i, (low_metric, high_metric) in enumerate(paired_metrics):
+            plt.subplot(1, 3, i + 1)
+            data = pd.DataFrame(
+                {
+                    "Low Temp": self.results[low_metric],
+                    "High Temp": self.results[high_metric],
+                }
+            )
+            sns.boxplot(data=data)
+            plt.title(low_metric.replace("low_temp_", "").replace("_", " ").title())
+        plt.tight_layout()
+        plt.savefig("temperature_paired_comparisons.png")
+        plt.close()
+
     def plot_metric_distribution(self, metric_name, title=None):
         """Create a distribution plot for a specific metric"""
         plt.figure(figsize=(10, 6))
@@ -291,6 +330,200 @@ def generate_summaries(
     return summaries, log_probs
 
 
+def generate_mixed_temperature_summaries(
+    model,
+    tokenizer,
+    text,
+    reference_summary,
+    doc_id,
+    low_temp=0.1,
+    high_temp=0.8,
+    num_high_temp_samples=9,
+):
+    """Generate one low temperature and multiple high temperature summaries"""
+    logging.info(
+        f"Generating 1 low temp (T={low_temp}) and {num_high_temp_samples} high temp (T={high_temp}) summaries for document ID: {doc_id}"
+    )
+
+    prompt = "Write a simple one-sentence summary of this news article: " f"{text}"
+
+    try:
+        inputs = tokenizer(
+            prompt,
+            return_tensors="pt",
+            max_length=512,
+            truncation=True,
+        ).to(model.device)
+    except Exception as e:
+        logging.error(f"Tokenization failed: {str(e)}")
+        raise
+
+    summaries = {"low_temp": [], "high_temp": []}
+    log_probs = {"low_temp": [], "high_temp": []}
+
+    # Generate low temperature sample
+    logging.info("Generating low temperature sample")
+    try:
+        outputs = model.generate(
+            **inputs,
+            do_sample=True,
+            max_new_tokens=30,
+            min_new_tokens=10,
+            temperature=low_temp,
+            top_p=0.85,
+            no_repeat_ngram_size=3,
+            length_penalty=1.0,
+            return_dict_in_generate=True,
+            output_scores=True,
+            pad_token_id=tokenizer.pad_token_id,
+        )
+
+        summary = process_generated_output(outputs, tokenizer, prompt)
+        if is_valid_summary(summary):
+            summaries["low_temp"].append(summary)
+            log_probs["low_temp"].append(calculate_log_prob(outputs))
+            logging.info(f"Low temperature summary: {summary}")
+    except Exception as e:
+        logging.error(f"Error generating low temperature sample: {str(e)}")
+
+    # Generate high temperature samples
+    logging.info("Generating high temperature samples")
+    for i in range(num_high_temp_samples):
+        try:
+            outputs = model.generate(
+                **inputs,
+                do_sample=True,
+                max_new_tokens=30,
+                min_new_tokens=10,
+                temperature=high_temp,
+                top_p=0.85,
+                no_repeat_ngram_size=3,
+                length_penalty=1.0,
+                return_dict_in_generate=True,
+                output_scores=True,
+                pad_token_id=tokenizer.pad_token_id,
+            )
+
+            summary = process_generated_output(outputs, tokenizer, prompt)
+            if is_valid_summary(summary):
+                summaries["high_temp"].append(summary)
+                log_probs["high_temp"].append(calculate_log_prob(outputs))
+                logging.info(f"High temperature sample {i+1}: {summary}")
+        except Exception as e:
+            logging.error(f"Error generating high temperature sample {i+1}: {str(e)}")
+            continue
+
+    return summaries, log_probs
+
+
+def is_valid_summary(summary):
+    """Check if the generated summary is valid"""
+    return len(summary) > 15 and summary != "." and not summary.startswith("http")
+
+
+def calculate_log_prob(outputs):
+    """Calculate log probability of generated sequence"""
+    scores = torch.stack(outputs.scores, dim=1)
+    seq_length = outputs.sequences[0, 1:].size(0)
+
+    if seq_length > scores.size(1):
+        seq_length = scores.size(1)
+        sequence = outputs.sequences[0, 1 : seq_length + 1]
+    else:
+        sequence = outputs.sequences[0, 1 : seq_length + 1]
+
+    token_probs = torch.softmax(scores[0, :seq_length], dim=-1)
+    token_log_probs = torch.log(token_probs.gather(-1, sequence.unsqueeze(-1)) + 1e-10)
+    return torch.sum(token_log_probs).item()
+
+
+def calculate_temperature_comparison_metrics(
+    summaries, log_probs, reference, document, entailment_model
+):
+    """Calculate metrics comparing low and high temperature samples"""
+    metrics = {}
+
+    # Basic statistics
+    metrics["num_high_temp_samples"] = len(summaries["high_temp"])
+    metrics["num_low_temp_samples"] = len(summaries["low_temp"])
+
+    if not summaries["low_temp"] or not summaries["high_temp"]:
+        logging.error("Missing samples for temperature comparison")
+        return metrics
+
+    # Cross-temperature similarity metrics
+    low_temp_summary = summaries["low_temp"][0]
+
+    # Calculate average ROUGE between low temp and high temp samples
+    rouge_scores_cross_temp = [
+        calculate_rouge(low_temp_summary, [high_temp_summary])
+        for high_temp_summary in summaries["high_temp"]
+    ]
+
+    metrics["avg_cross_temp_rouge1"] = np.mean(
+        [s["rouge1"] for s in rouge_scores_cross_temp]
+    )
+    metrics["avg_cross_temp_rouge2"] = np.mean(
+        [s["rouge2"] for s in rouge_scores_cross_temp]
+    )
+    metrics["avg_cross_temp_rougeL"] = np.mean(
+        [s["rougeL"] for s in rouge_scores_cross_temp]
+    )
+
+    # Calculate semantic similarity between low temp and high temp samples
+    semantic_similarities = [
+        entailment_model.check_implication(low_temp_summary, high_temp_summary)
+        for high_temp_summary in summaries["high_temp"]
+    ]
+    metrics["avg_cross_temp_semantic_similarity"] = np.mean(semantic_similarities)
+
+    # Compare factual consistency
+    low_temp_consistency = entailment_model.check_implication(
+        document, low_temp_summary
+    )
+    high_temp_consistencies = [
+        entailment_model.check_implication(document, summary)
+        for summary in summaries["high_temp"]
+    ]
+
+    metrics["low_temp_factual_consistency"] = low_temp_consistency
+    metrics["avg_high_temp_factual_consistency"] = np.mean(high_temp_consistencies)
+    metrics["factual_consistency_diff"] = low_temp_consistency - np.mean(
+        high_temp_consistencies
+    )
+
+    # Log probability statistics
+    metrics["low_temp_log_prob"] = log_probs["low_temp"][0]
+    metrics["avg_high_temp_log_prob"] = np.mean(log_probs["high_temp"])
+    metrics["log_prob_diff"] = (
+        metrics["low_temp_log_prob"] - metrics["avg_high_temp_log_prob"]
+    )
+
+    # Reference alignment comparison
+    low_temp_ref_alignment = entailment_model.check_implication(
+        reference, low_temp_summary
+    )
+    high_temp_ref_alignments = [
+        entailment_model.check_implication(reference, summary)
+        for summary in summaries["high_temp"]
+    ]
+
+    metrics["low_temp_ref_alignment"] = low_temp_ref_alignment
+    metrics["avg_high_temp_ref_alignment"] = np.mean(high_temp_ref_alignments)
+    metrics["ref_alignment_diff"] = low_temp_ref_alignment - np.mean(
+        high_temp_ref_alignments
+    )
+
+    return metrics
+
+
+def process_generated_output(outputs, tokenizer, prompt):
+    """Process the raw model output into a clean summary"""
+    full_output = tokenizer.decode(outputs.sequences[0], skip_special_tokens=True)
+    summary = full_output.replace(prompt, "").strip().split(".")[0].strip() + "."
+    return summary
+
+
 def evaluate_document(
     document, reference, doc_id, model, tokenizer, entailment_model, num_samples=10
 ):
@@ -301,51 +534,51 @@ def evaluate_document(
     )
 
     try:
-        # Generate multiple summaries
-        summaries, log_probs = generate_summaries(
-            model, tokenizer, document, reference, doc_id, num_samples
+        # Generate summaries with different temperatures
+        summaries, log_probs = generate_mixed_temperature_summaries(
+            model, tokenizer, document, reference, doc_id
         )
 
-        if not summaries:
-            logging.error(f"No valid summaries generated for document {doc_id}")
+        if not summaries["low_temp"] or not summaries["high_temp"]:
+            logging.error(
+                f"Insufficient valid summaries generated for document {doc_id}"
+            )
             return None
 
-        # Calculate semantic IDs
-        logging.info("Calculating semantic IDs")
-        semantic_ids = get_semantic_ids(summaries, entailment_model)
-        logging.info(f"Semantic IDs distribution: {np.bincount(semantic_ids)}")
+        # Calculate temperature comparison metrics
+        temp_comparison_metrics = calculate_temperature_comparison_metrics(
+            summaries, log_probs, reference, document, entailment_model
+        )
 
-        # Calculate BLEU score
-        logging.info("Calculating BLEU score")
-        bleu_score = calculate_bleu(reference, summaries)
-        logging.info(f"BLEU score: {bleu_score:.4f}")
+        # Calculate original metrics for all summaries combined
+        all_summaries = summaries["low_temp"] + summaries["high_temp"]
+        all_log_probs = log_probs["low_temp"] + log_probs["high_temp"]
 
-        # Calculate ROUGE score
-        logging.info("Calculating ROUGE score")
-        rouge_scores = calculate_rouge(reference, summaries)
-        logging.info(f"ROUGE score: {rouge_scores}")
+        # Standard metrics
+        semantic_ids = get_semantic_ids(all_summaries, entailment_model)
+        bleu_score = calculate_bleu(reference, all_summaries)
+        rouge_scores = calculate_rouge(reference, all_summaries)
 
-        # Calculate metrics
-        logging.debug("Computing evaluation metrics")
         metrics = {
-            "predictive_entropy": predictive_entropy(log_probs),
+            "predictive_entropy": predictive_entropy(all_log_probs),
             "cluster_entropy": cluster_assignment_entropy(semantic_ids),
             "context_entailment": context_entails_response(
-                document, summaries, entailment_model
+                document, all_summaries, entailment_model
             ),
             "bleu_score": bleu_score,
             "rouge1_score": rouge_scores["rouge1"],
             "rouge2_score": rouge_scores["rouge2"],
             "rougeL_score": rouge_scores["rougeL"],
             "reference_alignment": entailment_model.check_implication(
-                reference, summaries[0]
+                reference, all_summaries[0]
             ),
             "generated_summaries": summaries,
+            **temp_comparison_metrics,  # Add temperature comparison metrics
         }
 
         # Log metrics
         for metric, value in metrics.items():
-            if metric != "generated_summaries":
+            if isinstance(value, (int, float)):
                 logging.info(f"Document {doc_id} - {metric}: {value:.4f}")
 
         return metrics
