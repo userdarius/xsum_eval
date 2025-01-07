@@ -25,6 +25,54 @@ from scores import (
     predictive_entropy,
     cluster_assignment_entropy,
 )
+import nltk
+from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+from rouge_score import rouge_scorer
+import torch.nn.functional as F
+
+
+def calculate_rouge(reference, candidates):
+    """
+    Calculate ROUGE scores for a set of candidate summaries against a reference
+    """
+    scorer = rouge_scorer.RougeScorer(["rouge1", "rouge2", "rougeL"], use_stemmer=True)
+    rouge_scores = {"rouge1": [], "rouge2": [], "rougeL": []}
+
+    for candidate in candidates:
+        scores = scorer.score(reference, candidate)
+        rouge_scores["rouge1"].append(scores["rouge1"].fmeasure)
+        rouge_scores["rouge2"].append(scores["rouge2"].fmeasure)
+        rouge_scores["rougeL"].append(scores["rougeL"].fmeasure)
+
+    # Calculate average scores
+    avg_scores = {
+        "rouge1": np.mean(rouge_scores["rouge1"]),
+        "rouge2": np.mean(rouge_scores["rouge2"]),
+        "rougeL": np.mean(rouge_scores["rougeL"]),
+    }
+
+    return avg_scores
+
+
+def calculate_bleu(reference, candidates):
+    """
+    Calculate BLEU score for a set of candidate summaries against a reference
+    """
+    reference_tokens = nltk.word_tokenize(reference.lower())
+    smoother = SmoothingFunction().method1
+
+    bleu_scores = []
+    for candidate in candidates:
+        candidate_tokens = nltk.word_tokenize(candidate.lower())
+        score = sentence_bleu(
+            [reference_tokens],
+            candidate_tokens,
+            weights=(0.25, 0.25, 0.25, 0.25),
+            smoothing_function=smoother,
+        )
+        bleu_scores.append(score)
+
+    return np.mean(bleu_scores)
 
 
 class ResultsVisualizer:
@@ -127,6 +175,23 @@ def setup_logging():
     return log_filename
 
 
+def calculate_log_probs(model, input_ids):
+    """Calculate token-by-token log probabilities"""
+    with torch.no_grad():
+        outputs = model(input_ids, return_dict=True)
+        logits = outputs.logits[:, :-1, :]  # Remove last position
+        token_log_probs = F.log_softmax(logits, dim=-1)
+
+        # Get log probs for actual tokens
+        target_ids = input_ids[:, 1:]  # Shift right by 1
+        token_log_prob = token_log_probs.gather(-1, target_ids.unsqueeze(-1))
+
+        # Sum raw log probabilities
+        sequence_log_prob = torch.sum(token_log_prob).item()
+
+        return sequence_log_prob
+
+
 def generate_summaries(
     approx_model,
     target_model,
@@ -197,14 +262,15 @@ def generate_summaries(
                 # Calculate approximate log probabilities
                 # Since speculative sampling doesn't return scores directly,
                 # we'll need to calculate them separately
-                with torch.no_grad():
-                    input_ids = tokenizer(summary, return_tensors="pt").input_ids.to(
-                        target_model.device
-                    )
-                    outputs = target_model(input_ids, labels=input_ids)
-                    log_prob = -outputs.loss.item() * input_ids.size(1)
-                    log_probs.append(log_prob)
-
+                summary_ids = tokenizer(summary, return_tensors="pt").input_ids.to(
+                    target_model.device
+                )
+                approx_log_prob = calculate_log_probs(approx_model, summary_ids)
+                print(f"Approximate log probability: {approx_log_prob:.4f}")
+                target_log_prob = calculate_log_probs(target_model, summary_ids)
+                log_prob = target_log_prob
+                print(f"Target log probability: {log_prob:.4f}")
+                log_probs.append(log_prob)
                 logging.debug(
                     f"Sample {sample_idx + 1} log probability: {log_prob:.4f}"
                 )
@@ -220,6 +286,16 @@ def generate_summaries(
         f"Successfully generated {len(summaries)}/{num_samples} valid summaries"
     )
     return summaries, log_probs
+
+
+def analyze_sequence_probs(log_probs, length_normalized=False):
+    """Analyze sequence-level probability statistics"""
+    sequence_stats = {
+        "raw_mean_logprob": np.mean(log_probs),
+        "raw_std_logprob": np.std(log_probs),
+        "raw_median_logprob": np.median(log_probs),
+    }
+    return sequence_stats
 
 
 def evaluate_document(
@@ -257,7 +333,51 @@ def evaluate_document(
         # Calculate semantic IDs
         logging.info("Calculating semantic IDs")
         semantic_ids = get_semantic_ids(summaries, entailment_model)
-        logging.info(f"Semantic IDs distribution: {np.bincount(semantic_ids)}")
+        semantic_cluster_counts = np.bincount(semantic_ids)
+        logging.info(f"Semantic IDs distribution: {semantic_cluster_counts}")
+
+        context_entailment_score = context_entails_response(
+            document, summaries, entailment_model
+        )
+        answer_entailment_score = context_entails_response(
+            reference, summaries, entailment_model
+        )
+
+        # Calculate BLEU score
+        logging.info("Calculating BLEU score")
+        bleu_score = calculate_bleu(reference, summaries)
+        logging.info(f"BLEU score: {bleu_score:.4f}")
+
+        # Calculate ROUGE scores
+        logging.info("Calculating ROUGE scores")
+        rouge_scores = calculate_rouge(reference, summaries)
+        logging.info(f"ROUGE scores: {rouge_scores}")
+
+        # Print entailment scores (existing logic)
+        print(f"Context entailment score: {context_entailment_score}")
+        if context_entailment_score == 0:
+            print(f"Contradiction")
+        elif context_entailment_score == 1:
+            print(f"Neutral")
+        else:
+            print(f"Entailment")
+
+        print(f"Answer entailment score: {answer_entailment_score}")
+        if answer_entailment_score == 0:
+            print(f"Contradiction")
+        elif answer_entailment_score == 1:
+            print(f"Neutral")
+        else:
+            print(f"Entailment")
+
+        # Calculate basic metrics first
+        predictive_ent = predictive_entropy(log_probs)
+        print(f"Predictive entropy: {predictive_ent}")
+        cluster_ent = cluster_assignment_entropy(semantic_ids)
+        print(f"Cluster entropy: {cluster_ent}")
+
+        sequence_stats = analyze_sequence_probs(log_probs)
+        print(f"Sequence stats: {sequence_stats}")
 
         # Calculate metrics
         logging.debug("Computing evaluation metrics")
@@ -267,6 +387,10 @@ def evaluate_document(
             "context_entailment": context_entails_response(
                 document, summaries, entailment_model
             ),
+            "bleu_score": bleu_score,
+            "rouge1_score": rouge_scores["rouge1"],
+            "rouge2_score": rouge_scores["rouge2"],
+            "rougeL_score": rouge_scores["rougeL"],
             "reference_alignment": entailment_model.check_implication(
                 reference, summaries[0]
             ),
