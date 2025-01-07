@@ -519,7 +519,7 @@ def main():
         # Load dataset
         logging.info("Loading XSum dataset")
         dataset = get_dataset("xsum")
-        eval_dataset = dataset["validation"].select(range(5))
+        eval_dataset = dataset["validation"].select(range(500))
         logging.info(f"Evaluation dataset size: {len(eval_dataset)} documents")
 
         # NLTK punkt tokenizers
@@ -538,12 +538,6 @@ def main():
 
         # Initialize results storage
         results = []
-
-        # Track memory usage
-        if torch.cuda.is_available():
-            logging.info(
-                f"Initial GPU memory allocated: {torch.cuda.memory_allocated() / 1e9:.2f} GB"
-            )
 
         # Evaluate each document
         for idx, item in enumerate(tqdm(eval_dataset)):
@@ -568,6 +562,8 @@ def main():
                     logging.debug(
                         f"GPU memory after document {idx + 1}: {torch.cuda.memory_allocated() / 1e9:.2f} GB"
                     )
+
+                torch.cuda.empty_cache()
 
         # Calculate and log aggregate metrics
         logging.info("\nCalculating aggregate metrics")
@@ -632,7 +628,9 @@ def main():
                 visualizer.plot_semantic_clustering_metrics()
                 logging.info("Generated semantic clustering metrics plot")
             except Exception as e:
-                logging.error(f"Failed to generate semantic clustering metrics plot: {str(e)}")
+                logging.error(
+                    f"Failed to generate semantic clustering metrics plot: {str(e)}"
+                )
 
             try:
                 visualizer.plot_probability_metrics()
@@ -656,7 +654,9 @@ def main():
                 visualizer.plot_comprehensive_metric_relationships()
                 logging.info("Generated comprehensive metric relationships plot")
             except Exception as e:
-                logging.error(f"Failed to generate comprehensive metric relationships plot: {str(e)}")
+                logging.error(
+                    f"Failed to generate comprehensive metric relationships plot: {str(e)}"
+                )
 
             # Scatter plots
             metric_pairs = [
@@ -691,7 +691,7 @@ def main():
                 # Cross-category correlations
                 ("semantic_agreement_score", "high_confidence_entailment"),
                 ("response_diversity", "num_semantic_clusters"),
-                ("logprob_range", "context_answer_entailment_gap")
+                ("logprob_range", "context_answer_entailment_gap"),
             ]
 
             for x_metric, y_metric in metric_pairs:
@@ -718,13 +718,25 @@ def main():
                 logging.error(f"Failed to generate summary statistics: {str(e)}")
 
             additional_agg_metrics = {
-                "avg_num_semantic_clusters": np.mean([r["num_semantic_clusters"] for r in results]),
-                "avg_semantic_agreement": np.mean([r["semantic_agreement_score"] for r in results]),
-                "avg_response_diversity": np.mean([r["response_diversity"] for r in results]),
-                "avg_sequence_length": np.mean([r["mean_sequence_length"] for r in results]),
+                "avg_num_semantic_clusters": np.mean(
+                    [r["num_semantic_clusters"] for r in results]
+                ),
+                "avg_semantic_agreement": np.mean(
+                    [r["semantic_agreement_score"] for r in results]
+                ),
+                "avg_response_diversity": np.mean(
+                    [r["response_diversity"] for r in results]
+                ),
+                "avg_sequence_length": np.mean(
+                    [r["mean_sequence_length"] for r in results]
+                ),
                 "avg_logprob_range": np.mean([r["logprob_range"] for r in results]),
-                "avg_entailment_gap": np.mean([r["context_answer_entailment_gap"] for r in results]),
-                "avg_high_confidence": np.mean([r["high_confidence_entailment"] for r in results])
+                "avg_entailment_gap": np.mean(
+                    [r["context_answer_entailment_gap"] for r in results]
+                ),
+                "avg_high_confidence": np.mean(
+                    [r["high_confidence_entailment"] for r in results]
+                ),
             }
 
             # Add new metrics to existing aggregate metrics
