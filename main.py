@@ -378,6 +378,7 @@ def generate_summaries(
                 logging.debug(
                     f"Sample {sample_idx + 1} log probability: {log_prob:.4f}"
                 )
+                torch.cuda.empty_cache()
             else:
                 logging.warning(f"Sample {sample_idx + 1} failed validation: {summary}")
                 torch.cuda.empty_cache()
