@@ -318,6 +318,7 @@ def generate_summaries(
 
     summaries = []
     log_probs = []
+    confidence_scores = []  # Added confidence scores list
     logging.info(f"Document: {text}")
     logging.info(f"Reference summary: {reference_summary}")
 
@@ -359,24 +360,45 @@ def generate_summaries(
                 )
                 summaries.append(summary)
 
-                # Calculate log probabilities
+                # Calculate log probabilities and confidence scores
                 scores = torch.stack(outputs.scores, dim=1)
-                seq_length = outputs.sequences[0, 1:].size(0)
+                sequence = outputs.sequences[
+                    0, inputs["input_ids"].size(1) :
+                ]  # Only get new tokens
+                seq_length = sequence.size(0)
 
-                if seq_length > scores.size(1):
-                    seq_length = scores.size(1)
-                    sequence = outputs.sequences[0, 1 : seq_length + 1]
-                else:
-                    sequence = outputs.sequences[0, 1 : seq_length + 1]
+                if seq_length > 0:
+                    log_probs_per_token = []
+                    confidence_per_token = []
 
-                token_log_probs = F.log_softmax(scores[0, :seq_length], dim=-1)
-                token_log_prob = token_log_probs.gather(-1, sequence.unsqueeze(-1))
-                log_prob = torch.sum(token_log_prob).item()
+                    for i in range(min(seq_length, scores.size(1))):
+                        # Calculate token probabilities
+                        token_probs = F.softmax(scores[0, i], dim=-1)
+                        top_probs, _ = torch.topk(token_probs, k=2)
 
-                log_probs.append(log_prob)
-                logging.debug(
-                    f"Sample {sample_idx + 1} log probability: {log_prob:.4f}"
-                )
+                        # Calculate confidence as prob difference
+                        token_confidence = (top_probs[0] - top_probs[1]).item()
+                        confidence_per_token.append(token_confidence)
+
+                        # Calculate log probability
+                        token_log_probs = F.log_softmax(scores[0, i], dim=-1)
+                        token_log_prob = token_log_probs[sequence[i]].item()
+                        log_probs_per_token.append(token_log_prob)
+
+                    # Use raw sum instead of normalized average
+                    sequence_log_prob = sum(log_probs_per_token)
+                    avg_confidence = sum(confidence_per_token) / len(
+                        confidence_per_token
+                    )
+
+                    log_probs.append(sequence_log_prob)
+                    confidence_scores.append(avg_confidence)
+
+                    logging.debug(
+                        f"Sample {sample_idx + 1} - Log probability: {sequence_log_prob:.4f}, "
+                        f"Confidence score: {avg_confidence:.4f}"
+                    )
+
                 torch.cuda.empty_cache()
             else:
                 logging.warning(f"Sample {sample_idx + 1} failed validation: {summary}")
@@ -392,7 +414,6 @@ def generate_summaries(
     return summaries, log_probs
 
 
-
 def analyze_sequence_probs(log_probs, length_normalized=False):
     """Analyze sequence-level probability statistics"""
     sequence_stats = {
@@ -401,6 +422,7 @@ def analyze_sequence_probs(log_probs, length_normalized=False):
         "raw_median_logprob": np.median(log_probs),
     }
     return sequence_stats
+
 
 def evaluate_document(
     document, reference, doc_id, model, tokenizer, entailment_model, num_samples=10
@@ -534,6 +556,8 @@ def main():
         dataset = get_dataset("xsum")
         eval_dataset = dataset["validation"].select(range(500))
         logging.info(f"Evaluation dataset size: {len(eval_dataset)} documents")
+
+        eval_dataset = eval_dataset.shuffle(seed=42)
 
         # NLTK punkt tokenizers
         try:
