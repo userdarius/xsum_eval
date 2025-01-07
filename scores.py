@@ -103,11 +103,11 @@ def get_semantic_ids(strings_list, model, strict_entailment=False, example=None)
         clusters[sem_id].append(strings_list[idx])
 
     # Log each cluster
-    logging.info("Semantic clusters:")
+    print("Semantic clusters:")
     for cluster_id, texts in clusters.items():
-        logging.info(f"\nCluster {cluster_id}:")
+        print(f"\nCluster {cluster_id}:")
         for text in texts:
-            logging.info(f"  - {text}")
+            print(f" {text}")
 
     return semantic_set_ids
 
@@ -138,28 +138,19 @@ def logsumexp_by_id(semantic_ids, log_likelihoods, agg="sum_normalized"):
 
 
 def predictive_entropy(log_probs):
-    """Compute MC estimate of entropy with normalized probabilities.
-
-    `E[-log p(x)] ~= -1/N sum_i log p(x_i)`, i.e. the average token likelihood.
-    """
-    # Normalize to prevent underflow and get probabilities that sum to 1
-    log_probs_normalized = log_probs - np.max(log_probs)
+    """Compute entropy from raw sequence log probabilities."""
+    # Normalize the log probabilities
+    log_probs_normalized = log_probs - np.log(np.sum(np.exp(log_probs)))
     probs = np.exp(log_probs_normalized)
-    probs = probs / np.sum(probs)
-
-    # Calculate raw entropy using original log probabilities
-    raw_entropy = -np.sum(probs * log_probs)
-
-    # Normalize by the maximum possible entropy for the number of samples
+    
+    # Calculate entropy using normalized probabilities and their logs
+    entropy = -np.sum(probs * log_probs_normalized)
+    
+    # Optional: normalize by maximum possible entropy
     n_samples = len(log_probs)
-    max_entropy = np.log(
-        n_samples
-    )  # Maximum entropy is ln(n) for n equally likely outcomes
-
-    # Scale the entropy to [0, ln(n)] range
-    normalized_entropy = raw_entropy / (np.abs(np.mean(log_probs)))
-    normalized_entropy = normalized_entropy * max_entropy
-
+    max_entropy = np.log(n_samples)
+    normalized_entropy = entropy / max_entropy
+    
     return normalized_entropy
 
 

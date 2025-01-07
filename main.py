@@ -20,6 +20,7 @@ from scores import (
     predictive_entropy,
     cluster_assignment_entropy,
 )
+import torch.nn.functional as F
 import nltk
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 from rouge_score import rouge_scorer
@@ -368,11 +369,9 @@ def generate_summaries(
                 else:
                     sequence = outputs.sequences[0, 1 : seq_length + 1]
 
-                token_probs = torch.softmax(scores[0, :seq_length], dim=-1)
-                token_log_probs = torch.log(
-                    token_probs.gather(-1, sequence.unsqueeze(-1)) + 1e-10
-                )
-                log_prob = torch.sum(token_log_probs).item()
+                token_log_probs = F.log_softmax(scores[0, :seq_length], dim=-1)
+                token_log_prob = token_log_probs.gather(-1, sequence.unsqueeze(-1))
+                log_prob = torch.sum(token_log_prob).item()
 
                 log_probs.append(log_prob)
                 logging.debug(
@@ -392,6 +391,16 @@ def generate_summaries(
     )
     return summaries, log_probs
 
+
+
+def analyze_sequence_probs(log_probs, length_normalized=False):
+    """Analyze sequence-level probability statistics"""
+    sequence_stats = {
+        "raw_mean_logprob": np.mean(log_probs),
+        "raw_std_logprob": np.std(log_probs),
+        "raw_median_logprob": np.median(log_probs),
+    }
+    return sequence_stats
 
 def evaluate_document(
     document, reference, doc_id, model, tokenizer, entailment_model, num_samples=10
@@ -439,6 +448,8 @@ def evaluate_document(
         predictive_ent = predictive_entropy(log_probs)
         cluster_ent = cluster_assignment_entropy(semantic_ids)
 
+        sequence_stats = analyze_sequence_probs(log_probs, length_normalized=True)
+
         # Generate confidence scores (using log probabilities as proxy)
         confidence_scores = [np.exp(lp) for lp in log_probs]
 
@@ -485,6 +496,7 @@ def evaluate_document(
             "entropy_cluster_correlation": abs(predictive_ent - cluster_ent),
             # Store generated summaries
             "generated_summaries": summaries,
+            "sequence_stats": sequence_stats,
         }
 
         # Log metrics with type checking
