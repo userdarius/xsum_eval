@@ -29,72 +29,70 @@ import nltk
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 from rouge_score import rouge_scorer
 
+
 def calculate_rouge(reference, candidates):
     """
     Calculate ROUGE scores for a set of candidate summaries against a reference
-    
+
     Args:
         reference (str): The reference summary
         candidates (list): List of generated candidate summaries
-    
+
     Returns:
         dict: Average ROUGE scores across all candidates
     """
     # Initialize the ROUGE scorer with multiple ROUGE variants
-    scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
-    
+    scorer = rouge_scorer.RougeScorer(["rouge1", "rouge2", "rougeL"], use_stemmer=True)
+
     # Calculate ROUGE for each candidate
-    rouge_scores = {
-        'rouge1': [],
-        'rouge2': [],
-        'rougeL': []
-    }
-    
+    rouge_scores = {"rouge1": [], "rouge2": [], "rougeL": []}
+
     for candidate in candidates:
         scores = scorer.score(reference, candidate)
-        rouge_scores['rouge1'].append(scores['rouge1'].fmeasure)
-        rouge_scores['rouge2'].append(scores['rouge2'].fmeasure)
-        rouge_scores['rougeL'].append(scores['rougeL'].fmeasure)
-    
+        rouge_scores["rouge1"].append(scores["rouge1"].fmeasure)
+        rouge_scores["rouge2"].append(scores["rouge2"].fmeasure)
+        rouge_scores["rougeL"].append(scores["rougeL"].fmeasure)
+
     # Calculate average scores
     avg_scores = {
-        'rouge1': np.mean(rouge_scores['rouge1']),
-        'rouge2': np.mean(rouge_scores['rouge2']),
-        'rougeL': np.mean(rouge_scores['rougeL'])
+        "rouge1": np.mean(rouge_scores["rouge1"]),
+        "rouge2": np.mean(rouge_scores["rouge2"]),
+        "rougeL": np.mean(rouge_scores["rougeL"]),
     }
-    
+
     return avg_scores
+
 
 def calculate_bleu(reference, candidates):
     """
     Calculate BLEU score for a set of candidate summaries against a reference
-    
+
     Args:
         reference (str): The reference summary
         candidates (list): List of generated candidate summaries
-    
+
     Returns:
         float: Average BLEU score across all candidates
     """
     # Tokenize reference
     reference_tokens = nltk.word_tokenize(reference.lower())
-    
+
     # Initialize smoothing function for BLEU
     smoother = SmoothingFunction().method1
-    
+
     # Calculate BLEU for each candidate
     bleu_scores = []
     for candidate in candidates:
         candidate_tokens = nltk.word_tokenize(candidate.lower())
         # Calculate BLEU with equal weights for 1-4 grams
         score = sentence_bleu(
-            [reference_tokens], 
+            [reference_tokens],
             candidate_tokens,
             weights=(0.25, 0.25, 0.25, 0.25),
-            smoothing_function=smoother
+            smoothing_function=smoother,
         )
         bleu_scores.append(score)
-    
+
     # Return average BLEU score
     return np.mean(bleu_scores)
 
@@ -274,6 +272,16 @@ def generate_summaries(
         return [], [], []
 
 
+def analyze_sequence_probs(log_probs, length_normalized=False):
+    """Analyze sequence-level probability statistics"""
+    sequence_stats = {
+        "raw_mean_logprob": np.mean(log_probs),
+        "raw_std_logprob": np.std(log_probs),
+        "raw_median_logprob": np.median(log_probs),
+    }
+    return sequence_stats
+
+
 def evaluate_document(
     document, reference, doc_id, model, tokenizer, entailment_model, num_branches=10
 ):
@@ -335,7 +343,12 @@ def evaluate_document(
 
         # Calculate basic metrics first
         predictive_ent = predictive_entropy(log_probs)
+        print(f"Predictive entropy: {predictive_ent}")
         cluster_ent = cluster_assignment_entropy(semantic_ids)
+        print(f"Cluster entropy: {cluster_ent}")
+
+        sequence_stats = analyze_sequence_probs(log_probs)
+        print(f"Sequence stats: {sequence_stats}")
 
         metrics = {
             "document_id": doc_id,
@@ -355,9 +368,9 @@ def evaluate_document(
             "min_logprob": min(log_probs),
             "logprob_range": max(log_probs) - min(log_probs),
             "bleu_score": bleu_score,
-            "rouge1_score": rouge_scores['rouge1'],
-            "rouge2_score": rouge_scores['rouge2'],
-            "rougeL_score": rouge_scores['rougeL'],
+            "rouge1_score": rouge_scores["rouge1"],
+            "rouge2_score": rouge_scores["rouge2"],
+            "rougeL_score": rouge_scores["rougeL"],
             "num_semantic_clusters": len(set(semantic_ids)),
             "largest_cluster_size": max(semantic_cluster_counts),
             "cluster_size_std": np.std(semantic_cluster_counts),
@@ -378,6 +391,7 @@ def evaluate_document(
                     if s == semantic_ids[0]
                 ]
             ),
+            "sequence_stats": sequence_stats,
         }
 
         # Log metrics with type checking
@@ -420,17 +434,17 @@ def main():
 
         # NLTK punkt tokenizers
         try:
-            nltk.data.find('tokenizers/punkt_tab')
+            nltk.data.find("tokenizers/punkt_tab")
         except LookupError:
             logging.info("Downloading NLTK punkt_tab tokenizer")
-            nltk.download('punkt_tab')
-            
+            nltk.download("punkt_tab")
+
         # Also ensure we have the regular punkt tokenizer
         try:
-            nltk.data.find('tokenizers/punkt')
+            nltk.data.find("tokenizers/punkt")
         except LookupError:
             logging.info("Downloading NLTK punkt tokenizer")
-            nltk.download('punkt')
+            nltk.download("punkt")
 
         # Initialize results storage
         results = []
