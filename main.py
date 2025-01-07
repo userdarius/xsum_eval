@@ -429,7 +429,7 @@ def main():
         # Load dataset
         logging.info("Loading XSum dataset")
         dataset = get_dataset("xsum")
-        eval_dataset = dataset["validation"].select(range(5))
+        eval_dataset = dataset["validation"].select(range(500))
         logging.info(f"Evaluation dataset size: {len(eval_dataset)} documents")
 
         # NLTK punkt tokenizers
@@ -455,6 +455,9 @@ def main():
                 f"Initial GPU memory allocated: {torch.cuda.memory_allocated() / 1e9:.2f} GB"
             )
 
+        # Shuffle the dataset
+        eval_dataset = eval_dataset.shuffle(seed=42)
+
         # Evaluate each document
         for idx, item in enumerate(tqdm(eval_dataset)):
             logging.info(
@@ -477,6 +480,9 @@ def main():
                     logging.debug(
                         f"GPU memory after document {idx + 1}: {torch.cuda.memory_allocated() / 1e9:.2f} GB"
                     )
+
+            # Clear cache after each document
+            torch.cuda.empty_cache()
 
         # Generate visualizations and save results
         # Generate visualizations and save results
