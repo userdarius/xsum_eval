@@ -15,6 +15,7 @@ import json
 from model import (
     load_model_and_tokenizer,
     EntailmentDeberta,
+    speculative_sampling,
     speculative_sampling_v2,
     load_approx_and_target_model_and_tokenizer,
 )
@@ -175,23 +176,6 @@ def setup_logging():
     return log_filename
 
 
-def calculate_log_probs(model, input_ids):
-    """Calculate token-by-token log probabilities"""
-    with torch.no_grad():
-        outputs = model(input_ids, return_dict=True)
-        logits = outputs.logits[:, :-1, :]  # Remove last position
-        token_log_probs = F.log_softmax(logits, dim=-1)
-
-        # Get log probs for actual tokens
-        target_ids = input_ids[:, 1:]  # Shift right by 1
-        token_log_prob = token_log_probs.gather(-1, target_ids.unsqueeze(-1))
-
-        # Sum raw log probabilities
-        sequence_log_prob = torch.sum(token_log_prob).item()
-
-        return sequence_log_prob
-
-
 def generate_summaries(
     approx_model,
     target_model,
@@ -228,7 +212,7 @@ def generate_summaries(
         logging.debug(f"Generating sample {sample_idx + 1}/{num_samples}")
         try:
             # Use speculative sampling instead of regular generate
-            output_ids = speculative_sampling_v2(
+            output_ids, token_log_probs = speculative_sampling(
                 prefix=inputs.input_ids,
                 approx_model=approx_model,
                 target_model=target_model,
@@ -259,20 +243,14 @@ def generate_summaries(
                 )
                 summaries.append(summary)
 
-                # Calculate approximate log probabilities
-                # Since speculative sampling doesn't return scores directly,
-                # we'll need to calculate them separately
-                summary_ids = tokenizer(summary, return_tensors="pt").input_ids.to(
-                    target_model.device
-                )
-                approx_log_prob = calculate_log_probs(approx_model, summary_ids)
-                print(f"Approximate log probability: {approx_log_prob:.4f}")
-                target_log_prob = calculate_log_probs(target_model, summary_ids)
-                log_prob = target_log_prob
-                print(f"Target log probability: {log_prob:.4f}")
-                log_probs.append(log_prob)
+                # Calculate sequence log probability as sum of token log probs
+                sequence_log_prob = sum(token_log_probs)
+                log_probs.append(sequence_log_prob)
+
                 logging.debug(
-                    f"Sample {sample_idx + 1} log probability: {log_prob:.4f}"
+                    f"Sample {sample_idx + 1} - Sequence length: {len(token_log_probs)} tokens, "
+                    f"Total log probability: {sequence_log_prob:.4f}, "
+                    f"Average log probability: {sequence_log_prob/len(token_log_probs):.4f}"
                 )
             else:
                 logging.warning(f"Sample {sample_idx + 1} failed validation: {summary}")
