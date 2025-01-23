@@ -119,22 +119,83 @@ class ResultsVisualizer:
         plt.savefig(f"{x_metric}_vs_{y_metric}_scatter.png")
         plt.close()
 
-    def plot_metrics_over_documents(self):
-        """Plot all metrics across documents"""
-        metrics = [col for col in self.results.columns if col != "document_id"]
-        plt.figure(figsize=(12, 6))
+    def plot_semantic_clustering_metrics(self):
+        """Create a combined plot of semantic clustering metrics"""
+        semantic_metrics = [
+            "num_semantic_clusters",
+            "largest_cluster_size",
+            "cluster_size_std",
+        ]
 
-        for metric in metrics:
-            plt.plot(
-                range(len(self.results)), self.results[metric], label=metric, marker="o"
-            )
+        fig, axes = plt.subplots(1, 3, figsize=(15, 12))
+        fig.suptitle("Semantic Clustering Metrics Analysis")
 
-        plt.title("Metrics across Documents")
-        plt.xlabel("Document Index")
-        plt.ylabel("Value")
-        plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+        for idx, metric in enumerate(semantic_metrics):
+            sns.boxplot(data=self.results[metric], ax=axes[idx])
+            axes[idx].set_title(f"{metric} Distribution")
+            axes[idx].set_xlabel(metric)
+
         plt.tight_layout()
-        plt.savefig("metrics_across_documents.png")
+        plt.savefig("semantic_clustering_analysis.png")
+        plt.close()
+
+    def plot_probability_metrics(self):
+        """Create visualizations for probability-based metrics"""
+        prob_metrics = ["max_logprob", "min_logprob", "logprob_range"]
+
+        fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+        fig.suptitle("Probability Metrics Analysis")
+
+        for idx, metric in enumerate(prob_metrics):
+            sns.violinplot(data=self.results[metric], ax=axes[idx])
+            axes[idx].set_title(f"{metric} Distribution")
+            axes[idx].set_xlabel(metric)
+
+        plt.tight_layout()
+        plt.savefig("probability_metrics_analysis.png")
+        plt.close()
+
+    def plot_entailment_analysis(self):
+        """Create visualizations for entailment-based metrics"""
+        plt.figure(figsize=(12, 8))
+
+        metrics = [
+            "context_answer_entailment_gap",
+            "entropy_cluster_correlation",
+        ]
+
+        plt.figure(figsize=(15, 5))
+        for idx, metric in enumerate(metrics, 1):
+            plt.subplot(1, 3, idx)
+            sns.kdeplot(data=self.results[metric], fill=True)
+            plt.title(f"{metric} Distribution")
+            plt.xlabel(metric)
+
+        plt.tight_layout()
+        plt.savefig("entailment_analysis.png")
+        plt.close()
+
+    def plot_comprehensive_metric_relationships(self):
+        """Create a comprehensive analysis of relationships between different metric types"""
+        # Select key metrics from each category
+        key_metrics = {
+            "Semantic": ["num_semantic_clusters"],
+            "Probability": ["max_logprob", "logprob_range"],
+            "Entailment": [
+                "context_answer_entailment_gap",
+            ],
+            "Sequence": ["mean_sequence_length"],
+        }
+
+        # Create correlation matrix for these metrics
+        selected_metrics = [m for metrics in key_metrics.values() for m in metrics]
+        correlation_matrix = self.results[selected_metrics].corr()
+
+        plt.figure(figsize=(12, 10))
+        sns.heatmap(correlation_matrix, annot=True, cmap="coolwarm", center=0)
+        plt.title("Cross-Category Metric Correlations")
+        plt.tight_layout()
+        plt.savefig("comprehensive_metric_relationships.png")
         plt.close()
 
     def generate_summary_statistics(self):
@@ -459,6 +520,10 @@ def main():
                 "avg_reference_alignment": np.mean(
                     [r["reference_alignment"] for r in results]
                 ),
+                "avg_bleu_score": np.mean([r["bleu_score"] for r in results]),
+                "avg_rouge1_score": np.mean([r["rouge1_score"] for r in results]),
+                "avg_rouge2_score": np.mean([r["rouge2_score"] for r in results]),
+                "avg_rougeL_score": np.mean([r["rougeL_score"] for r in results]),
             }
 
             logging.info("Final Aggregate Metrics:")
@@ -482,6 +547,10 @@ def main():
                 "cluster_entropy",
                 "context_entailment",
                 "reference_alignment",
+                "bleu_score",
+                "rouge1_score",
+                "rouge2_score",
+                "rougeL_score",
             ]:
                 try:
                     visualizer.plot_metric_distribution(metric)
@@ -497,10 +566,61 @@ def main():
             except Exception as e:
                 logging.error(f"Failed to generate correlation heatmap: {str(e)}")
 
+            try:
+                visualizer.plot_semantic_clustering_metrics()
+                logging.info("Generated semantic clustering metrics plot")
+            except Exception as e:
+                logging.error(
+                    f"Failed to generate semantic clustering metrics plot: {str(e)}"
+                )
+
+            try:
+                visualizer.plot_probability_metrics()
+                logging.info("Generated probability metrics plot")
+            except Exception as e:
+                logging.error(f"Failed to generate probability metrics plot: {str(e)}")
+
+            try:
+                visualizer.plot_entailment_analysis()
+                logging.info("Generated entailment analysis plot")
+            except Exception as e:
+                logging.error(f"Failed to generate entailment analysis plot: {str(e)}")
+
+            try:
+                visualizer.plot_comprehensive_metric_relationships()
+                logging.info("Generated comprehensive metric relationships plot")
+            except Exception as e:
+                logging.error(
+                    f"Failed to generate comprehensive metric relationships plot: {str(e)}"
+                )
+
             # Scatter plots
             metric_pairs = [
+                # Uncertainty correlations
                 ("predictive_entropy", "cluster_entropy"),
+                ("predictive_entropy", "rouge1_score"),
+                ("predictive_entropy", "rouge2_score"),
+                ("predictive_entropy", "rougeL_score"),
+                ("predictive_entropy", "bleu_score"),
+                ("cluster_entropy", "rouge1_score"),
+                ("cluster_entropy", "rouge2_score"),
+                ("cluster_entropy", "rougeL_score"),
+                ("cluster_entropy", "bleu_score"),
+                # Semantic correlations
                 ("context_entailment", "reference_alignment"),
+                ("context_entailment", "rouge2_score"),
+                ("context_entailment", "rouge1_score"),
+                ("context_entailment", "rougeL_score"),
+                ("context_entailment", "bleu_score"),
+                ("reference_alignment", "rouge1_score"),
+                ("reference_alignment", "rouge2_score"),
+                ("reference_alignment", "rougeL_score"),
+                ("reference_alignment", "bleu_score"),
+                # Cross-category key correlations
+                ("predictive_entropy", "reference_alignment"),
+                # Semantic clustering correlations
+                ("largest_cluster_size", "cluster_size_std"),
+                ("num_semantic_clusters", "cluster_size_std"),
             ]
             for x_metric, y_metric in metric_pairs:
                 try:
@@ -512,18 +632,35 @@ def main():
                     )
 
             try:
-                visualizer.plot_metrics_over_documents()
-                logging.info("Generated metrics over documents plot")
-            except Exception as e:
-                logging.error(
-                    f"Failed to generate metrics over documents plot: {str(e)}"
-                )
-
-            try:
                 summary_stats = visualizer.generate_summary_statistics()
                 logging.info(f"Generated summary statistics:\n{summary_stats}")
             except Exception as e:
                 logging.error(f"Failed to generate summary statistics: {str(e)}")
+
+            additional_agg_metrics = {
+                "avg_num_semantic_clusters": np.mean(
+                    [r["num_semantic_clusters"] for r in results]
+                ),
+                "avg_sequence_length": np.mean(
+                    [r["mean_sequence_length"] for r in results]
+                ),
+                "avg_logprob_range": np.mean([r["logprob_range"] for r in results]),
+                "avg_entailment_gap": np.mean(
+                    [r["context_answer_entailment_gap"] for r in results]
+                ),
+                "avg_rouge1_score": np.mean([r["rouge1_score"] for r in results]),
+                "avg_rouge2_score": np.mean([r["rouge2_score"] for r in results]),
+                "avg_rougeL_score": np.mean([r["rougeL_score"] for r in results]),
+                "avg_bleu_score": np.mean([r["bleu_score"] for r in results]),
+            }
+
+            # Add new metrics to existing aggregate metrics
+            agg_metrics.update(additional_agg_metrics)
+
+            # Log new aggregate metrics
+            logging.info("\nAdditional Aggregate Metrics:")
+            for metric, value in additional_agg_metrics.items():
+                logging.info(f"{metric}: {value:.4f}")
 
         except Exception as e:
             logging.error(f"Failed to generate visualizations: {str(e)}")
