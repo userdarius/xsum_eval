@@ -137,42 +137,21 @@ class ResultsVisualizer:
         plt.savefig(f"{x_metric}_vs_{y_metric}_scatter.png")
         plt.close()
 
-    def plot_metrics_over_documents(self):
-        """Plot all metrics across documents"""
-        metrics = [col for col in self.results.columns if col != "document_id"]
-        plt.figure(figsize=(12, 6))
-
-        for metric in metrics:
-            plt.plot(
-                range(len(self.results)), self.results[metric], label=metric, marker="o"
-            )
-
-        plt.title("Metrics across Documents")
-        plt.xlabel("Document Index")
-        plt.ylabel("Value")
-        plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-        plt.tight_layout()
-        plt.savefig("metrics_across_documents.png")
-        plt.close()
-
     def plot_semantic_clustering_metrics(self):
         """Create a combined plot of semantic clustering metrics"""
         semantic_metrics = [
             "num_semantic_clusters",
             "largest_cluster_size",
             "cluster_size_std",
-            "semantic_agreement_score",
         ]
 
-        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+        fig, axes = plt.subplots(1, 3, figsize=(15, 12))
         fig.suptitle("Semantic Clustering Metrics Analysis")
 
         for idx, metric in enumerate(semantic_metrics):
-            row = idx // 2
-            col = idx % 2
-            sns.boxplot(data=self.results[metric], ax=axes[row, col])
-            axes[row, col].set_title(f"{metric} Distribution")
-            axes[row, col].set_xlabel(metric)
+            sns.boxplot(data=self.results[metric], ax=axes[idx])
+            axes[idx].set_title(f"{metric} Distribution")
+            axes[idx].set_xlabel(metric)
 
         plt.tight_layout()
         plt.savefig("semantic_clustering_analysis.png")
@@ -200,7 +179,6 @@ class ResultsVisualizer:
 
         metrics = [
             "context_answer_entailment_gap",
-            "high_confidence_entailment",
             "entropy_cluster_correlation",
         ]
 
@@ -215,34 +193,16 @@ class ResultsVisualizer:
         plt.savefig("entailment_analysis.png")
         plt.close()
 
-    def plot_sequence_metrics(self):
-        """Create visualizations for sequence-based metrics"""
-        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-        fig.suptitle("Sequence Metrics Analysis")
-
-        sns.boxplot(data=self.results["mean_sequence_length"], ax=axes[0])
-        axes[0].set_title("Mean Sequence Length Distribution")
-        axes[0].set_xlabel("Mean Sequence Length")
-
-        sns.histplot(data=self.results["response_diversity"], ax=axes[1], kde=True)
-        axes[1].set_title("Response Diversity Distribution")
-        axes[1].set_xlabel("Response Diversity")
-
-        plt.tight_layout()
-        plt.savefig("sequence_metrics_analysis.png")
-        plt.close()
-
     def plot_comprehensive_metric_relationships(self):
         """Create a comprehensive analysis of relationships between different metric types"""
         # Select key metrics from each category
         key_metrics = {
-            "Semantic": ["semantic_agreement_score", "num_semantic_clusters"],
+            "Semantic": ["num_semantic_clusters"],
             "Probability": ["max_logprob", "logprob_range"],
             "Entailment": [
                 "context_answer_entailment_gap",
-                "high_confidence_entailment",
             ],
-            "Sequence": ["mean_sequence_length", "response_diversity"],
+            "Sequence": ["mean_sequence_length"],
         }
 
         # Create correlation matrix for these metrics
@@ -457,7 +417,9 @@ def evaluate_document(
         # Calculate ROUGE score
         logging.info("Calculating ROUGE score")
         rouge_scores = calculate_rouge(reference, summaries)
-        logging.info(f"ROUGE score: {rouge_scores}")
+        logging.info(
+            f"ROUGE score: {rouge_scores}"
+        )  # returns the average for each metric
 
         # Calculate entailment scores
         context_entailment_score = context_entails_response(
@@ -492,7 +454,6 @@ def evaluate_document(
             ),
             # New sequence-based metrics
             "mean_sequence_length": np.mean([len(s.split()) for s in summaries]),
-            "response_diversity": len(set(summaries)) / len(summaries),
             # New probability-based metrics
             "max_logprob": max(log_probs),
             "min_logprob": min(log_probs),
@@ -503,17 +464,9 @@ def evaluate_document(
             "cluster_size_std": np.std(semantic_cluster_counts),
             "majority_summary_frequency": max(semantic_cluster_counts)
             / len(semantic_ids),
-            "semantic_agreement_score": len(set(semantic_ids)) / len(summaries),
             # New entailment-based metrics
             "context_answer_entailment_gap": abs(
                 context_entailment_score - answer_entailment_score
-            ),
-            "high_confidence_entailment": np.mean(
-                [
-                    c
-                    for c, s in zip(confidence_scores, semantic_ids)
-                    if s == semantic_ids[0]
-                ]
             ),
             "entropy_cluster_correlation": abs(predictive_ent - cluster_ent),
             # Store generated summaries
@@ -682,12 +635,6 @@ def main():
                 logging.error(f"Failed to generate entailment analysis plot: {str(e)}")
 
             try:
-                visualizer.plot_sequence_metrics()
-                logging.info("Generated sequence metrics plot")
-            except Exception as e:
-                logging.error(f"Failed to generate sequence metrics plot: {str(e)}")
-
-            try:
                 visualizer.plot_comprehensive_metric_relationships()
                 logging.info("Generated comprehensive metric relationships plot")
             except Exception as e:
@@ -700,35 +647,28 @@ def main():
                 # Uncertainty correlations
                 ("predictive_entropy", "cluster_entropy"),
                 ("predictive_entropy", "rouge1_score"),
+                ("predictive_entropy", "rouge2_score"),
+                ("predictive_entropy", "rougeL_score"),
+                ("predictive_entropy", "bleu_score"),
                 ("cluster_entropy", "rouge1_score"),
+                ("cluster_entropy", "rouge2_score"),
+                ("cluster_entropy", "rougeL_score"),
+                ("cluster_entropy", "bleu_score"),
                 # Semantic correlations
                 ("context_entailment", "reference_alignment"),
+                ("context_entailment", "rouge2_score"),
+                ("context_entailment", "rouge1_score"),
                 ("context_entailment", "rougeL_score"),
+                ("context_entailment", "bleu_score"),
                 ("reference_alignment", "rouge1_score"),
-                # N-gram metrics correlations
-                ("bleu_score", "rouge1_score"),
-                ("bleu_score", "rouge2_score"),
-                ("bleu_score", "rougeL_score"),
-                ("rouge1_score", "rouge2_score"),
-                ("rouge2_score", "rougeL_score"),
+                ("reference_alignment", "rouge2_score"),
+                ("reference_alignment", "rougeL_score"),
+                ("reference_alignment", "bleu_score"),
                 # Cross-category key correlations
-                ("cluster_entropy", "rougeL_score"),
                 ("predictive_entropy", "reference_alignment"),
                 # Semantic clustering correlations
-                ("num_semantic_clusters", "semantic_agreement_score"),
                 ("largest_cluster_size", "cluster_size_std"),
-                # Probability metric correlations
-                ("max_logprob", "logprob_range"),
-                ("min_logprob", "logprob_range"),
-                # Entailment correlations
-                ("context_answer_entailment_gap", "high_confidence_entailment"),
-                ("entropy_cluster_correlation", "semantic_agreement_score"),
-                # Sequence metric correlations
-                ("mean_sequence_length", "response_diversity"),
-                # Cross-category correlations
-                ("semantic_agreement_score", "high_confidence_entailment"),
-                ("response_diversity", "num_semantic_clusters"),
-                ("logprob_range", "context_answer_entailment_gap"),
+                ("num_semantic_clusters", "cluster_size_std"),
             ]
 
             for x_metric, y_metric in metric_pairs:
@@ -741,14 +681,6 @@ def main():
                     )
 
             try:
-                visualizer.plot_metrics_over_documents()
-                logging.info("Generated metrics over documents plot")
-            except Exception as e:
-                logging.error(
-                    f"Failed to generate metrics over documents plot: {str(e)}"
-                )
-
-            try:
                 summary_stats = visualizer.generate_summary_statistics()
                 logging.info(f"Generated summary statistics:\n{summary_stats}")
             except Exception as e:
@@ -758,22 +690,17 @@ def main():
                 "avg_num_semantic_clusters": np.mean(
                     [r["num_semantic_clusters"] for r in results]
                 ),
-                "avg_semantic_agreement": np.mean(
-                    [r["semantic_agreement_score"] for r in results]
-                ),
-                "avg_response_diversity": np.mean(
-                    [r["response_diversity"] for r in results]
-                ),
                 "avg_sequence_length": np.mean(
                     [r["mean_sequence_length"] for r in results]
                 ),
-                "avg_logprob_range": np.mean([r["logprob_range"] for r in results]),
                 "avg_entailment_gap": np.mean(
                     [r["context_answer_entailment_gap"] for r in results]
                 ),
-                "avg_high_confidence": np.mean(
-                    [r["high_confidence_entailment"] for r in results]
-                ),
+                "avg_logprob_range": np.mean([r["logprob_range"] for r in results]),
+                "avg_rouge1_score": np.mean([r["rouge1_score"] for r in results]),
+                "avg_rouge2_score": np.mean([r["rouge2_score"] for r in results]),
+                "avg_rougeL_score": np.mean([r["rougeL_score"] for r in results]),
+                "avg_bleu_score": np.mean([r["bleu_score"] for r in results]),
             }
 
             # Add new metrics to existing aggregate metrics
