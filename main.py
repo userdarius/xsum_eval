@@ -450,6 +450,71 @@ def evaluate_document(
         return None
 
 
+def save_results_to_json(results, experiment_dir):
+    """Save evaluation results to a JSON file with aggregate metrics at the top"""
+
+    # Calculate aggregate metrics
+    agg_metrics = {
+        "aggregate_metrics": {
+            "avg_predictive_entropy": float(
+                np.mean([r["predictive_entropy"] for r in results])
+            ),
+            "avg_cluster_entropy": float(
+                np.mean([r["cluster_entropy"] for r in results])
+            ),
+            "avg_context_entailment": float(
+                np.mean([r["context_entailment"] for r in results])
+            ),
+            "avg_reference_alignment": float(
+                np.mean([r["reference_alignment"] for r in results])
+            ),
+            "avg_bleu_score": float(np.mean([r["bleu_score"] for r in results])),
+            "avg_rouge1_score": float(np.mean([r["rouge1_score"] for r in results])),
+            "avg_rouge2_score": float(np.mean([r["rouge2_score"] for r in results])),
+            "avg_rougeL_score": float(np.mean([r["rougeL_score"] for r in results])),
+            "avg_num_semantic_clusters": float(
+                np.mean([r["num_semantic_clusters"] for r in results])
+            ),
+            "avg_sequence_length": float(
+                np.mean([r["mean_sequence_length"] for r in results])
+            ),
+            "avg_logprob_range": float(np.mean([r["logprob_range"] for r in results])),
+            "avg_entailment_gap": float(
+                np.mean([r["context_answer_entailment_gap"] for r in results])
+            ),
+        }
+    }
+
+    # Clean and prepare document results
+    document_results = []
+    for result in results:
+        # Create a copy to avoid modifying the original
+        doc_result = result.copy()
+
+        # Convert numpy types to Python native types
+        for key, value in doc_result.items():
+            if isinstance(value, (np.integer, np.floating)):
+                doc_result[key] = float(value)
+            elif isinstance(value, np.ndarray):
+                doc_result[key] = value.tolist()
+
+        document_results.append(doc_result)
+
+    # Combine aggregate metrics and document results
+    output_data = {**agg_metrics, "document_results": document_results}
+
+    # Save to JSON file
+    output_path = os.path.join(experiment_dir, "evaluation_results.json")
+    with open(output_path, "w") as f:
+        json.dump(output_data, f, indent=2)
+
+    logging.info(f"Results saved to {output_path}")
+    return output_path
+
+
+# Add to main() function after results processing
+
+
 def main():
     """Main function to run the evaluation"""
     experiment_dir = create_experiment_dir()
@@ -680,6 +745,12 @@ def main():
             logging.info("\nAdditional Aggregate Metrics:")
             for metric, value in additional_agg_metrics.items():
                 logging.info(f"{metric}: {value:.4f}")
+
+            try:
+                json_path = save_results_to_json(results, experiment_dir)
+                logging.info(f"Successfully saved results to JSON: {json_path}")
+            except Exception as e:
+                logging.error(f"Failed to save results to JSON: {str(e)}")
 
         except Exception as e:
             logging.error(f"Failed to generate visualizations: {str(e)}")
