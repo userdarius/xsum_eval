@@ -272,40 +272,57 @@ def setup_logging(experiment_dir):
     return log_filename
 
 
+def generate_independent_summary(
+    model, tokenizer, prompt, max_length, num_branches, summary_index
+):
+    """Generate a single summary with temperature varying by summary index"""
+    # Vary temperature between 0.7 and 1.3 for different summaries
+    temperature = 0.7 + (summary_index * 0.6 / num_branches)
+
+    responses = generate_branching_responses(
+        model,
+        tokenizer,
+        prompt,
+        max_length=max_length,
+        num_branches=num_branches,
+        temperature=temperature,
+        top_p=0.9,
+    )
+
+    if responses:
+        return max(responses, key=lambda x: x[1])
+    return "", 0.0, 0.0
+
+
 def generate_summaries(
     model, tokenizer, text, reference_summary, doc_id, num_branches=10
 ):
-    """Generate multiple summaries using branching generation"""
+    """Generate multiple independent summaries, each using branching"""
     logging.info(f"Generating {num_branches} summaries for document ID: {doc_id}")
     logging.debug(f"Input text length: {len(text)} characters")
 
     prompt = "Write a simple one-sentence summary of this news article: " + text
 
     try:
-        # Use branching generation method
-        responses = generate_branching_responses(
-            model,
-            tokenizer,
-            prompt,
-            max_length=30,
-            num_branches=num_branches,
-        )
-
-        # Sort responses by confidence score
-        responses.sort(key=lambda x: x[1], reverse=True)
-
         summaries = []
         confidence_scores = []
         log_probs = []
 
-        logging.info(f"Document: {text}")
-        logging.info(f"Reference summary: {reference_summary}")
+        # Generate num_branches independent summaries
+        for i in range(num_branches):
+            logging.info(f"Generating summary {i+1}/{num_branches}")
+            response, confidence_score, log_prob = generate_independent_summary(
+                model,
+                tokenizer,
+                prompt,
+                max_length=30,
+                num_branches=num_branches,
+            )
 
-        for response, confidence_score, log_prob in responses:
             # Clean up the summary
             summary = response.replace(prompt, "").strip()
 
-            # Remove "Source: BBC News" and similar variations
+            # Remove source patterns
             source_patterns = ["Source: BBC News", "Source: BBC", "BBC News:", "BBC:"]
             for pattern in source_patterns:
                 summary = summary.replace(pattern, "").strip()

@@ -93,24 +93,52 @@ class EntailmentDeberta(BaseEntailment):
         return prediction
 
 
-### Branching Model ###
+### Branching ###
 def get_topk_next_tokens(
-    model: AutoModelForCausalLM, inputs: Dict[str, torch.Tensor], num_branches: int
+    model: AutoModelForCausalLM,
+    inputs: Dict[str, torch.Tensor],
+    num_branches: int,
+    temperature: float = 1.0,  # Made temperature configurable
+    top_p: float = 0.9,  # Added nucleus sampling parameter
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Get the top k most likely next tokens and their probabilities.
-    Also returns the log probabilities.
+    Uses temperature scaling and nucleus sampling for more diverse outputs.
     """
     with torch.no_grad():
-        outputs = model(**inputs, return_dict=True, temperature=0.4)
+        outputs = model(**inputs, return_dict=True)
         next_token_logits = outputs.logits[:, -1, :]
 
-    log_probs = torch.log_softmax(next_token_logits, dim=-1)  # Get log probabilities
-    probabilities = torch.softmax(next_token_logits, dim=-1)
-    topk_values, topk_indices = torch.topk(probabilities, num_branches)
-    topk_logprobs = torch.gather(
-        log_probs, -1, topk_indices
-    )  # Get corresponding log probs
+        # Apply temperature scaling
+        next_token_logits = next_token_logits / temperature
+
+        # Convert to probabilities
+        probs = torch.softmax(next_token_logits, dim=-1)
+
+        # Apply nucleus sampling (top-p)
+        sorted_probs, sorted_indices = torch.sort(probs, descending=True, dim=-1)
+        cumsum_probs = torch.cumsum(sorted_probs, dim=-1)
+
+        # Remove tokens with cumulative probability above the threshold
+        sorted_indices_to_keep = cumsum_probs <= top_p
+        sorted_indices_to_keep[..., 1:] = sorted_indices_to_keep[..., :-1].clone()
+        sorted_indices_to_keep[..., 0] = 1
+
+        # Scatter sorted indices back to original indexing
+        indices_to_keep = sorted_indices_to_keep.scatter(
+            1, sorted_indices, sorted_indices_to_keep
+        )
+        probs = probs * indices_to_keep
+
+        # Renormalize probabilities
+        probs = probs / probs.sum(dim=-1, keepdim=True)
+
+        # Get top-k from filtered distribution
+        topk_values, topk_indices = torch.topk(probs, num_branches)
+
+        # Calculate log probabilities for the selected tokens
+        log_probs = torch.log(probs)
+        topk_logprobs = torch.gather(log_probs, -1, topk_indices)
 
     return topk_values, topk_indices, topk_logprobs
 
@@ -120,19 +148,25 @@ def generate_single_branch(
     tokenizer: AutoTokenizer,
     max_length: int,
     inputs: Dict[str, torch.Tensor],
+    temperature: float = 1.0,  # Added temperature parameter
+    top_p: float = 0.9,  # Added top_p parameter
 ) -> Tuple[str, float, float]:
     response_tokens = [inputs["input_ids"][0, -1].item()]
     prob_diffs = []
-    sequence_logprob = 0.0  # Track sequence log probability
+    sequence_logprob = 0.0
 
     print(f"Starting with initial token: '{tokenizer.decode([response_tokens[0]])}'")
 
     for step in range(max_length):
         topk_values, topk_indices, topk_logprobs = get_topk_next_tokens(
-            model, inputs, num_branches=10
+            model, inputs, num_branches=10, temperature=temperature, top_p=top_p
         )
 
-        next_token = topk_indices[0, 0].item()
+        # Sample from top-k distribution instead of always taking the highest probability
+        probs = topk_values[0]
+        probs = probs / probs.sum()  # Renormalize
+        next_token_idx = torch.multinomial(probs, 1)[0].item()
+        next_token = topk_indices[0, next_token_idx].item()
         next_token_text = tokenizer.decode([next_token])
 
         current_text = tokenizer.decode(response_tokens + [next_token])
@@ -147,12 +181,12 @@ def generate_single_branch(
                 stop in current_text for stop in [".", "\n", "Explanation:", "Answer:"]
             ):
                 response_tokens.append(next_token)
-                sequence_logprob += topk_logprobs[0, 0].item()
+                sequence_logprob += topk_logprobs[0, next_token_idx].item()
             break
 
         # Regular token processing
         prob_diff = (topk_values[0, 0] - topk_values[0, 1]).item()
-        sequence_logprob += topk_logprobs[0, 0].item()  
+        sequence_logprob += topk_logprobs[0, next_token_idx].item()
         response_tokens.append(next_token)
         prob_diffs.append(prob_diff)
 
@@ -170,7 +204,6 @@ def generate_single_branch(
                 dim=1,
             )
 
-    # Convert token IDs to text at the end
     generated_text = tokenizer.decode(response_tokens, skip_special_tokens=True)
     avg_prob_diff = sum(prob_diffs) / len(prob_diffs) if prob_diffs else 0
 
@@ -183,19 +216,16 @@ def generate_branching_responses(
     prompt: str,
     max_length: int,
     num_branches: int,
+    temperature: float = 1.0,  # Added temperature parameter
+    top_p: float = 0.9,  # Added top_p parameter
 ) -> List[Tuple[str, float, float]]:
-    """
-    Generate multiple responses by exploring different initial tokens.
-    Returns tuples of (text, confidence_score, log_probability)
-    """
-    # Tokenize the prompt
     inputs = tokenizer(prompt, return_tensors="pt")
     inputs = {k: v.to(model.device) for k, v in inputs.items()}
 
-    # Get initial top k tokens
+    # Get initial top k tokens with temperature and top-p
     topk_values, topk_indices, topk_logprobs = get_topk_next_tokens(
-        model, inputs, num_branches
-    )  # Updated to unpack 3 values
+        model, inputs, num_branches, temperature=temperature, top_p=top_p
+    )
 
     # Log initial token choices
     for k in range(num_branches):
@@ -210,7 +240,7 @@ def generate_branching_responses(
         first_token = topk_indices[:, k : k + 1]
         first_token_text = tokenizer.decode(first_token[0])
         print(f"First token: '{first_token_text}'")
-        # if first token is a stop token, skip this branch
+
         if any(
             stop in first_token_text
             for stop in [".", "\n", "Explanation:", "Answer:", r" \ ", "\\"]
@@ -218,7 +248,6 @@ def generate_branching_responses(
             print(f"Skipping branch {k+1} because it starts with a stop token")
             continue
 
-        # Create a new branch starting with the k-th most likely token
         branch_inputs = {
             "input_ids": torch.cat(
                 [inputs["input_ids"], topk_indices[:, k : k + 1]], dim=1
@@ -236,9 +265,13 @@ def generate_branching_responses(
             ),
         }
 
-        # Generate the rest of the response for this branch
         generated_text, confidence_score, log_prob = generate_single_branch(
-            model, tokenizer, max_length, branch_inputs
+            model,
+            tokenizer,
+            max_length,
+            branch_inputs,
+            temperature=temperature,
+            top_p=top_p,
         )
 
         responses.append((generated_text, confidence_score, log_prob))
