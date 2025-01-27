@@ -317,6 +317,7 @@ def generate_summaries(
                 prompt,
                 max_length=30,
                 num_branches=num_branches,
+                summary_index=i,
             )
 
             # Clean up the summary
